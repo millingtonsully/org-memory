@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import httpx
+import structlog
+
+from org_memory.core.settings import get_settings
+from org_memory.db.orm import TaxonomyProposal
+from org_memory.db.repositories.proposals import TaxonomyProposalRepository
+
+logger = structlog.get_logger(__name__)
+
+
+def proposal_payload(row: TaxonomyProposal) -> dict:
+    return {
+        "proposal_id": row.proposal_id,
+        "subject_type": row.subject_type,
+        "subject_id": row.subject_id,
+        "taxonomy_key": row.taxonomy_key,
+        "field_key": row.field_key,
+        "predicate": row.predicate,
+        "value": row.value_text,
+        "confidence": row.confidence,
+        "evidence_doc_ids": list(row.evidence_doc_ids or []),
+        "source_claim_id": row.source_claim_id,
+        "precedence_class": row.precedence_class,
+        "status": row.status,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def push_proposals_if_configured(
+    repo: TaxonomyProposalRepository,
+    proposals: list[TaxonomyProposal],
+    *,
+    raise_on_error: bool = False,
+) -> None:
+    url = (get_settings().taxonomy_proposal_webhook_url or "").strip()
+    if not url or not proposals:
+        return
+    body = {"proposals": [proposal_payload(p) for p in proposals if p.status == "pending"]}
+    if not body["proposals"]:
+        return
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.post(url, json=body)
+        if response.status_code >= 400:
+            error = f"webhook HTTP {response.status_code}: {response.text[:500]}"
+            logger.error("taxonomy_proposals.webhook_failed", error=error)
+            for p in proposals:
+                repo.record_push_error(p.proposal_id, error)
+            if raise_on_error:
+                raise RuntimeError(error)
+            return
+        logger.info("taxonomy_proposals.webhook_ok", count=len(body["proposals"]))
+    except httpx.HTTPError as exc:
+        error = f"webhook transport error: {exc}"
+        logger.error("taxonomy_proposals.webhook_failed", error=error)
+        for p in proposals:
+            repo.record_push_error(p.proposal_id, error)
+        if raise_on_error:
+            raise RuntimeError(error) from exc

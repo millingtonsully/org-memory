@@ -1,0 +1,207 @@
+{
+  "$defs": {
+    "ChangeKind": {
+      "description": "What happened in the source system. Deletes are tombstones, never row erasure.",
+      "enum": [
+        "create",
+        "update",
+        "delete",
+        "permission_change"
+      ],
+      "title": "ChangeKind",
+      "type": "string"
+    },
+    "IdentityKind": {
+      "description": "Source actor classification supplied by the connector.",
+      "enum": ["person", "service", "shared", "unknown"],
+      "title": "IdentityKind",
+      "type": "string"
+    },
+    "IdentityEmail": {
+      "properties": {
+        "value": {"title": "Value", "type": "string"},
+        "verified": {"default": false, "title": "Verified", "type": "boolean"}
+      },
+      "required": ["value"],
+      "title": "IdentityEmail",
+      "type": "object"
+    },
+    "IdentityKey": {
+      "properties": {
+        "namespace": {"title": "Namespace", "type": "string"},
+        "value": {"title": "Value", "type": "string"},
+        "verified": {"default": false, "title": "Verified", "type": "boolean"}
+      },
+      "required": ["namespace", "value"],
+      "title": "IdentityKey",
+      "type": "object"
+    },
+    "SourceIdentity": {
+      "properties": {
+        "role": {"title": "Role", "type": "string"},
+        "identity_kind": {
+          "$ref": "#/$defs/IdentityKind",
+          "default": "unknown"
+        },
+        "external_id": {"default": "", "title": "External Id", "type": "string"},
+        "display_name": {"default": "", "title": "Display Name", "type": "string"},
+        "emails": {
+          "items": {"$ref": "#/$defs/IdentityEmail"},
+          "title": "Emails",
+          "type": "array"
+        },
+        "identifiers": {
+          "items": {"$ref": "#/$defs/IdentityKey"},
+          "title": "Identifiers",
+          "type": "array"
+        }
+      },
+      "required": ["role"],
+      "title": "SourceIdentity",
+      "type": "object"
+    },
+    "PrincipalId": {
+      "description": "User or PermissionGroup UUID namespaced as user:<uuid> or group:<uuid>. See org_memory.domain.principals.",
+      "pattern": "^(user|group):[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "title": "PrincipalId",
+      "type": "string"
+    },
+    "StructuredField": {
+      "description": "Connector-native structured fact carried beside rendered text.",
+      "properties": {
+        "key": {
+          "description": "Stable field key, e.g. jira.status or gcal.attendee",
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "description": "JSON-serializable value from the source"
+        },
+        "value_type": {
+          "default": "string",
+          "enum": ["string", "number", "boolean", "datetime", "enum", "reference"],
+          "title": "Value Type",
+          "type": "string"
+        }
+      },
+      "required": ["key", "value"],
+      "title": "StructuredField",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "source_system": {
+      "description": "Opaque connector/system id. Free string; not an enum. New connectors do not require a code change.",
+      "title": "Source System",
+      "type": "string"
+    },
+    "external_id": {
+      "description": "the source tool's own stable ID for this object",
+      "title": "External Id",
+      "type": "string"
+    },
+    "change_kind": {
+      "$ref": "#/$defs/ChangeKind"
+    },
+    "source_type": {
+      "description": "Opaque object-kind label for filtering. Free string; not an enum. New connectors do not require a code change.",
+      "title": "Source Type",
+      "type": "string"
+    },
+    "title": {
+      "default": "",
+      "description": "human-readable title",
+      "title": "Title",
+      "type": "string"
+    },
+    "text": {
+      "default": "",
+      "description": "deterministic rendered text used for indexing",
+      "title": "Text",
+      "type": "string"
+    },
+    "author_external_id": {
+      "default": "",
+      "description": "author id as known in the source system",
+      "title": "Author External Id",
+      "type": "string"
+    },
+    "author_display_name": {
+      "default": "",
+      "title": "Author Display Name",
+      "type": "string"
+    },
+    "author_email": {
+      "default": "",
+      "title": "Author Email",
+      "type": "string"
+    },
+    "author_identity_kind": {
+      "$ref": "#/$defs/IdentityKind",
+      "default": "unknown"
+    },
+    "author_email_verified": {
+      "default": false,
+      "title": "Author Email Verified",
+      "type": "boolean"
+    },
+    "participants": {
+      "description": "All source-observed participants. Roles and identifier namespaces are free strings.",
+      "items": {"$ref": "#/$defs/SourceIdentity"},
+      "title": "Participants",
+      "type": "array"
+    },
+    "event_time": {
+      "description": "when this happened in the world",
+      "format": "date-time",
+      "title": "Event Time",
+      "type": "string"
+    },
+    "org_visible": {
+      "default": false,
+      "description": "True only for content that is public to the whole workspace",
+      "title": "Org Visible",
+      "type": "boolean"
+    },
+    "allowed_principals": {
+      "description": "user/group principal IDs permitted to read this content (UUID form)",
+      "items": {"$ref": "#/$defs/PrincipalId"},
+      "title": "Allowed Principals",
+      "type": "array"
+    },
+    "structured_fields": {
+      "default": [],
+      "description": "Connector-native structured values for deterministic fact writers",
+      "items": {"$ref": "#/$defs/StructuredField"},
+      "title": "Structured Fields",
+      "type": "array"
+    },
+    "parent_external_id": {
+      "default": "",
+      "description": "parent object id in the source system, if any",
+      "title": "Parent External Id",
+      "type": "string"
+    },
+    "deep_link": {
+      "default": "",
+      "description": "URL back to the source object",
+      "title": "Deep Link",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "source_system",
+    "external_id",
+    "change_kind",
+    "source_type",
+    "event_time"
+  ],
+  "title": "ChangeEnvelope",
+  "type": "object",
+  "$comment": "POST this shape to /ingress/envelope (header X-Api-Key). Matches ChangeEnvelope in domain.models. Principal rules: org_memory.domain.principals."
+}

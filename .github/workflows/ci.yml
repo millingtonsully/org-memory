@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev,s3]"
+      - name: Ruff
+        run: ruff check src tests
+      - name: Mypy
+        run: mypy src
+      - name: Unit tests
+        run: pytest -m "not integration and not postgres" -q
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: org_memory
+          POSTGRES_PASSWORD: org_memory
+          POSTGRES_DB: org_memory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U org_memory -d org_memory"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://org_memory:org_memory@localhost:5432/org_memory
+      WORKSPACE_ID: ci-workspace
+      SERVICE_API_KEY: ci-service-key
+      EMBEDDING_API_KEY: ci-embed-key
+      RERANK_API_KEY: ci-rerank-key
+      OBJECT_STORE_BACKEND: supabase
+      SUPABASE_PROJECT_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ci-service-role
+      RETENTION_DAYS: 30
+      SPEND_ALERT_TOKENS_MONTHLY: 1000
+      SPEND_HARD_LIMIT_TOKENS_MONTHLY: 2000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev,s3]"
+      - name: Migrate
+        run: alembic upgrade head
+      - name: Postgres tests
+        run: pytest -m postgres -q

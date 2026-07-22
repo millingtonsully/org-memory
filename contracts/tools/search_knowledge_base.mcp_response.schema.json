@@ -1,0 +1,22 @@
+{
+  "$comment": "MCP tool result envelope for search_knowledge_base. content[0].text is a JSON array string (empty → \"[]\").",
+  "type": "object",
+  "required": ["content", "isError", "status"],
+  "properties": {
+    "content": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "text"],
+        "properties": {
+          "type": {"const": "text"},
+          "text": {"type": "string"}
+        }
+      }
+    },
+    "isError": {"type": "boolean"},
+    "status": {"type": "integer"}
+  },
+  "additionalProperties": false
+}

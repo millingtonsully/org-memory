@@ -1,0 +1,25 @@
+{
+  "$comment": "worldbuilder_kb arguments.",
+  "type": "object",
+  "properties": {
+    "about": {"type": "string", "minLength": 1},
+    "query": {"type": "string", "minLength": 1},
+    "author": {"type": "string"},
+    "author_canonical_entity_id": {"type": "string"},
+    "connector": {
+      "type": "string",
+      "enum": ["slack", "notion", "gmail", "github", "gcal", "jira"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["hybrid", "semantic", "keyword"],
+      "default": "hybrid"
+    },
+    "limit": {"type": "integer", "minimum": 1, "maximum": 25, "default": 10}
+  },
+  "anyOf": [
+    {"required": ["about"]},
+    {"required": ["query"]}
+  ],
+  "additionalProperties": false
+}
