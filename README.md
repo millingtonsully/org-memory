@@ -1,33 +1,18 @@
 # Org Memory
 
-**Contents**
-
-1. [What this is](#what-this-is)
-2. [What the code does](#what-the-code-does)
-3. [How the system is shaped](#how-the-system-is-shaped)
-4. [Load-bearing modules and decisions](#load-bearing-modules-and-decisions)
-5. [Keyword search, BM25, and Postgres](#keyword-search-bm25-and-postgres)
-6. [Bootstrap and day-two ops](#bootstrap-and-day-two-ops)
-7. [Integration into production](#integration-into-production)
-8. [Agent platform architecture](#agent-platform-architecture)
-
----
-
-## What this is
-
 Org Memory is a service that stores workplace content as searchable memory and as a governed people and entity graph.
 
 External sync workers push structured change events into an ingress API. Tools call search and the graph endpoints. The service has its own Postgres database and its own object store for raw envelopes, separate from a customer's application database.
 
 ---
 
-## What the code does
+## How it works
 
 The API accepts ChangeEnvelope JSON (the ingest contract for one content change). It archives the raw payload, writes documents and text chunks into Postgres, and enqueues background jobs for embeddings and graph extraction. When someone searches, the service embeds the query, fetches vector and keyword candidates under access-control filters, merges those ranked lists with reciprocal rank fusion, then reranks with a cross-encoder. A separate worker process drains the job queue. Embedding and chat vendor calls run in that worker, not inside the HTTP request path.
 
 ---
 
-## How the system is shaped
+## System shape
 
 **Top-level packages under** `src/org_memory/`
 
@@ -51,7 +36,7 @@ The API accepts ChangeEnvelope JSON (the ingest contract for one content change)
 
 ---
 
-## Load-bearing modules and decisions
+## Modules
 
 This section explains the important paths and why they look the way they do.
 
