@@ -74,7 +74,7 @@ Chunk search builds access control into the SQL query. The viewer's principals (
 
 The hybrid path is:
 
-1. Embed the query (OpenAI-compatible `/embeddings`) into a vector; moving to Voyage is better since our re-ranker is on Voyage.
+1. Embed the query (OpenAI-compatible `/embeddings`) into a vector; moving to Voyage is better since our re-ranker is on Voyage, they have custom models, and special embedding attributes.
 2. Grab vector candidates with pgvector (cosine similarity over an HNSW approximate-nearest-neighbor index). This is the dense half of hybrid search.
 3. Fetch keyword candidates with Postgres full-text search (`tsvector` + `ts_rank`) under the same ACL filters in SQL. This is the lexical half; together with step 2 that's pgvector + FTS.
 4. Merge the two ranked lists with reciprocal rank fusion (RRF), which just combines two rankings when scores are on different scales.
