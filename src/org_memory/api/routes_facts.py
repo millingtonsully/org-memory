@@ -137,10 +137,14 @@ def query_facts(
             }
         )
 
-    facts.sort(
-        key=lambda f: (float(f["freshness_score"]), float(f["confidence"]), f["fact_id"]),
-        reverse=True,
-    )
+    def _sort_key(f: dict) -> tuple[float, float, str]:
+        freshness = f["freshness_score"]
+        confidence = f["confidence"]
+        freshness_f = float(freshness) if isinstance(freshness, (int, float)) else 0.0
+        confidence_f = float(confidence) if isinstance(confidence, (int, float)) else 0.0
+        return (freshness_f, confidence_f, str(f["fact_id"]))
+
+    facts.sort(key=_sort_key, reverse=True)
     truncated = len(facts) > body.limit
     facts = facts[: body.limit]
 

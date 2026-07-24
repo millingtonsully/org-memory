@@ -213,6 +213,8 @@ class WorldbuilderService:
                     "display_name or use the canonical_id via the graph API."
                 ),
             }
+        # raise_if_missing=True: never None here; narrow for the type checker.
+        assert person is not None
 
         retrieval_query = (query or "").strip() or self._evidence_query(person)
         evidence = self._retrieval.search(
