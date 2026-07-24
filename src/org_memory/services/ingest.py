@@ -301,6 +301,7 @@ class IngestService:
 def _document_metadata(envelope: ChangeEnvelope) -> dict:
     """Merge connector metadata with structured_fields for later deterministic writers."""
     meta = dict(envelope.metadata)
+    meta["author_email_verified"] = bool(envelope.author_email_verified)
     if envelope.structured_fields:
         meta["structured_fields"] = [field.model_dump(mode="json") for field in envelope.structured_fields]
     return meta

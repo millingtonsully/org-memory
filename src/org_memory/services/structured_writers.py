@@ -12,9 +12,9 @@ from typing import Protocol
 import structlog
 from sqlalchemy.orm import Session
 
-from org_memory.db.orm import Claim, Document
+from org_memory.db.orm import Claim, Document, utcnow
 from org_memory.db.repositories import GraphRepository, PersonRepository
-from org_memory.domain.fact_lifecycle import FactStatus
+from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import StructuredField
 from org_memory.taxonomy_registry import TaxonomyRegistry, get_taxonomy_registry
 
@@ -71,6 +71,18 @@ class RegistryBackedStructuredFieldWriter:
                 continue
             object_text = _stringify_value(field.value)
             if not object_text:
+                if pred.mutually_exclusive:
+                    rivals = graph.active_claims_for_slot_locked(
+                        subject[0], subject[1], pred.key
+                    )
+                    for rival in rivals:
+                        if (rival.created_by or "").startswith("structured_field"):
+                            transition_fact(
+                                rival,
+                                FactStatus.retracted,
+                                "automatic:structured_field_cleared",
+                            )
+                            rival.invalidated_at = utcnow()
                 continue
             claim = graph.add_claim(
                 Claim(
@@ -107,7 +119,7 @@ def _author_person_subject(session: Session, doc: Document) -> tuple[str, str] |
         person = persons.find_by_source_id(doc.source_system, doc.author_external_id)
         if person is not None:
             return ("person", person.canonical_id)
-    if doc.author_email:
+    if doc.author_email and bool((doc.doc_metadata or {}).get("author_email_verified")):
         person = persons.find_by_verified_email(doc.author_email)
         if person is not None:
             return ("person", person.canonical_id)

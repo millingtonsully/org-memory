@@ -155,7 +155,7 @@ def job_queue(
                 "attempts": j.attempts,
                 "max_attempts": j.max_attempts,
                 "last_error": j.last_error,
-                "raw_error": j.raw_error,
+                "raw_error": (j.raw_error or "")[:2000],
                 "updated_at": j.updated_at.isoformat(),
             }
             for j in problem_jobs

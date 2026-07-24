@@ -1,0 +1,18 @@
+{
+  "$comment": "MCP query_paths argument schema (deterministic multi-hop).",
+  "type": "object",
+  "required": ["start_type", "start_id"],
+  "properties": {
+    "start_type": {"type": "string", "minLength": 1},
+    "start_id": {"type": "string", "minLength": 1},
+    "relationship_types": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": []
+    },
+    "max_depth": {"type": "integer", "minimum": 1, "maximum": 3, "default": 2},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+    "as_of": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

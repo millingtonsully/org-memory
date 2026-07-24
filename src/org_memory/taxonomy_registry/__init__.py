@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from org_memory.taxonomy_registry.loader import load_taxonomy_registry, resolve_registry_dir
 from org_memory.taxonomy_registry.models import (
+    EntityTypeDef,
     PlatformBinding,
     PredicateDef,
     RelationshipTypeDef,
@@ -13,6 +14,7 @@ from org_memory.taxonomy_registry.models import (
 )
 
 __all__ = [
+    "EntityTypeDef",
     "PlatformBinding",
     "PredicateDef",
     "RelationshipTypeDef",

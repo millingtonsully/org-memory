@@ -106,6 +106,8 @@ class Settings(BaseSettings):
     # taxonomy_proposals delivery: blank = caller pulls
     # GET /v1/taxonomy-proposals; non-blank = also POST each pending row here.
     taxonomy_proposal_webhook_url: str = ""
+    # Optional HMAC-SHA256 secret for X-Org-Memory-Signature: sha256=<hex>.
+    taxonomy_proposal_webhook_secret: str = ""
 
     @field_validator("database_url")
     @classmethod

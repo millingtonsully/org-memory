@@ -57,11 +57,15 @@ def handle_embed_chunks(session: Session, payload: dict, embedder: Embedder, hea
     )
     if not chunks:
         return
-    SpendRepository(session).assert_under_hard_limit()
-    if heartbeat is not None:
-        heartbeat()
     texts = [c.text for c in chunks]
     chunk_ids = [c.chunk_id for c in chunks]
+    estimate = max(len(texts) * 500, 1)
+    with session_scope() as spend_session:
+        reservation_id = SpendRepository(spend_session).reserve(
+            "embed", "embedding", embedder.model_name, estimate
+        )
+    if heartbeat is not None:
+        heartbeat()
     vectors, tokens = embedder.embed_texts(texts)
     if heartbeat is not None:
         heartbeat()
@@ -85,7 +89,7 @@ def handle_embed_chunks(session: Session, payload: dict, embedder: Embedder, hea
         chunk.embedding_model = embedder.model_name
         chunk.updated_at = utcnow()
     with session_scope() as spend_session:
-        SpendRepository(spend_session).record("embed", "embedding", embedder.model_name, tokens)
+        SpendRepository(spend_session).finalize_reservation(reservation_id, tokens)
     logger.info("worker.embedded", doc_id=doc_id, chunks=len(chunks), tokens=tokens)
 
 

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+
 import httpx
 import structlog
 
@@ -29,21 +33,32 @@ def proposal_payload(row: TaxonomyProposal) -> dict:
     }
 
 
+def _sign_body(body: bytes, secret: str) -> str:
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return f"sha256={digest}"
+
+
 def push_proposals_if_configured(
     repo: TaxonomyProposalRepository,
     proposals: list[TaxonomyProposal],
     *,
     raise_on_error: bool = False,
 ) -> None:
-    url = (get_settings().taxonomy_proposal_webhook_url or "").strip()
+    settings = get_settings()
+    url = (settings.taxonomy_proposal_webhook_url or "").strip()
     if not url or not proposals:
         return
     body = {"proposals": [proposal_payload(p) for p in proposals if p.status == "pending"]}
     if not body["proposals"]:
         return
+    payload = json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    secret = (settings.taxonomy_proposal_webhook_secret or "").strip()
+    if secret:
+        headers["X-Org-Memory-Signature"] = _sign_body(payload, secret)
     try:
         with httpx.Client(timeout=15.0) as client:
-            response = client.post(url, json=body)
+            response = client.post(url, content=payload, headers=headers)
         if response.status_code >= 400:
             error = f"webhook HTTP {response.status_code}: {response.text[:500]}"
             logger.error("taxonomy_proposals.webhook_failed", error=error)

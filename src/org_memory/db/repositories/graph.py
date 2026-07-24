@@ -20,6 +20,7 @@ from org_memory.db.orm import (
 from org_memory.db.repositories._common import _document_visibility_filters_sql
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import Principal
+from org_memory.domain.proposals import precedence_rank
 
 
 class GraphRepository:
@@ -69,6 +70,7 @@ class GraphRepository:
                         c.predicate || ': ' || c.object_text AS fact_text,
                         c.confidence,
                         evidence.doc_ids AS evidence_doc_ids,
+                        c.evidence_quotes AS evidence_quotes,
                         ts_rank(
                             to_tsvector(
                                 'english',
@@ -108,6 +110,7 @@ class GraphRepository:
                         ) AS fact_text,
                         r.confidence,
                         evidence.doc_ids AS evidence_doc_ids,
+                        r.evidence_quotes AS evidence_quotes,
                         ts_rank(
                             to_tsvector(
                                 'english',
@@ -163,6 +166,12 @@ class GraphRepository:
         ).mappings()
         candidates: list[dict] = []
         for rank, row in enumerate(rows, start=1):
+            visible_ids = set(row["evidence_doc_ids"] or [])
+            quotes = [
+                quote
+                for quote in (row["evidence_quotes"] or [])
+                if quote.get("doc_id") in visible_ids
+            ]
             candidates.append(
                 {
                     "fact_id": row["fact_id"],
@@ -170,6 +179,7 @@ class GraphRepository:
                     "text": row["fact_text"],
                     "confidence": float(row["confidence"]),
                     "evidence_doc_ids": list(row["evidence_doc_ids"]),
+                    "evidence_quotes": quotes,
                     "keyword_score": float(row["keyword_score"]),
                     "rank": rank,
                 }
@@ -315,7 +325,12 @@ class GraphRepository:
         return rel
 
     def relationships_for(
-        self, node_type: str, node_id: str, status: str = "active", as_of: datetime | None = None
+        self,
+        node_type: str,
+        node_id: str,
+        status: str = "active",
+        as_of: datetime | None = None,
+        believed_as_of: datetime | None = None,
     ) -> list[Relationship]:
         """Edges attached to a node. When as_of is provided, filter by validity window."""
         q = self._session.query(Relationship).filter(
@@ -331,6 +346,12 @@ class GraphRepository:
                 (Relationship.valid_from.is_(None)) | (Relationship.valid_from <= as_of),
                 (Relationship.valid_to.is_(None)) | (Relationship.valid_to > as_of),
             )
+        if believed_as_of is not None:
+            q = q.filter(
+                Relationship.recorded_at <= believed_as_of,
+                (Relationship.invalidated_at.is_(None))
+                | (Relationship.invalidated_at > believed_as_of),
+            )
         return q.order_by(Relationship.created_at).all()
 
     def relationships_for_viewer(
@@ -340,11 +361,18 @@ class GraphRepository:
         principal: Principal,
         status: str = "active",
         as_of: datetime | None = None,
+        believed_as_of: datetime | None = None,
     ) -> list[tuple[Relationship, list[str]]]:
         """Return edges whose entire evidence set is visible to this viewer.
         """
         visible: list[tuple[Relationship, list[str]]] = []
-        for rel in self.relationships_for(node_type, node_id, status=status, as_of=as_of):
+        for rel in self.relationships_for(
+            node_type,
+            node_id,
+            status=status,
+            as_of=as_of,
+            believed_as_of=believed_as_of,
+        ):
             evidence = list(rel.evidence_doc_ids or [])
             if not evidence:
                 continue
@@ -378,6 +406,19 @@ class GraphRepository:
             existing.confidence = max(existing.confidence, claim.confidence)
             if existing.valid_from is None and claim.valid_from is not None:
                 existing.valid_from = claim.valid_from
+            merged_count = len(existing.evidence_doc_ids or [])
+            incoming_rank = precedence_rank(
+                created_by=claim.created_by or "",
+                evidence_count=merged_count,
+            )
+            existing_rank = precedence_rank(
+                created_by=existing.created_by or "",
+                evidence_count=merged_count,
+            )
+            if incoming_rank > existing_rank:
+                existing.created_by = claim.created_by
+                if claim.decided_by:
+                    existing.decided_by = claim.decided_by
             if claim.status == FactStatus.active.value and existing.status != FactStatus.active.value:
                 transition_fact(
                     existing,
@@ -458,20 +499,34 @@ class GraphRepository:
         if close_at is None:
             close_at = utcnow()
         claim.valid_to = close_at
+        claim.invalidated_at = utcnow()
         transition_fact(claim, FactStatus.superseded, decided_by)
         claim.superseded_by_claim_id = superseded_by_claim_id
 
-    def supersede_slot_rivals(self, winner: Claim, decided_by: str) -> None:
-        """Retire other active values in a mutually exclusive claim slot."""
+    def supersede_slot_rivals(self, winner: Claim, decided_by: str) -> list[Claim]:
+        """Supersede only lower-precedence rivals; return equal/higher left active."""
+        winner_rank = precedence_rank(
+            created_by=winner.created_by or "",
+            evidence_count=len(winner.evidence_doc_ids or []),
+        )
         rivals = self.active_claims_for_slot_locked(
             winner.subject_type, winner.subject_id, winner.predicate
         )
+        leftover: list[Claim] = []
         for rival in rivals:
             if rival.claim_id == winner.claim_id:
                 continue
             if rival.object_text == winner.object_text:
                 continue
+            rival_rank = precedence_rank(
+                created_by=rival.created_by or "",
+                evidence_count=len(rival.evidence_doc_ids or []),
+            )
+            if rival_rank >= winner_rank:
+                leftover.append(rival)
+                continue
             self.supersede_claim(rival, winner.claim_id, decided_by)
+        return leftover
 
     def supersede_relationship(
         self,
@@ -489,6 +544,7 @@ class GraphRepository:
         if close_at is None:
             close_at = utcnow()
         relationship.valid_to = close_at
+        relationship.invalidated_at = utcnow()
         transition_fact(relationship, FactStatus.superseded, decided_by)
         relationship.superseded_by_relationship_id = superseded_by_relationship_id
 
@@ -498,6 +554,7 @@ class GraphRepository:
         subject_id: str,
         statuses: list[str] | None = None,
         as_of: datetime | None = None,
+        believed_as_of: datetime | None = None,
     ) -> list[Claim]:
         q = self._session.query(Claim).filter(
             Claim.workspace_id == self._ws,
@@ -511,6 +568,11 @@ class GraphRepository:
                 (Claim.valid_from.is_(None)) | (Claim.valid_from <= as_of),
                 (Claim.valid_to.is_(None)) | (Claim.valid_to > as_of),
             )
+        if believed_as_of is not None:
+            q = q.filter(
+                Claim.recorded_at <= believed_as_of,
+                (Claim.invalidated_at.is_(None)) | (Claim.invalidated_at > believed_as_of),
+            )
         return q.order_by(Claim.created_at.desc()).all()
 
     def claims_for_viewer(
@@ -520,11 +582,18 @@ class GraphRepository:
         principal: Principal,
         statuses: list[str] | None = None,
         as_of: datetime | None = None,
+        believed_as_of: datetime | None = None,
     ) -> list[tuple[Claim, list[str]]]:
         """Return claims whose *entire* evidence set is visible to this viewer.
         """
         visible: list[tuple[Claim, list[str]]] = []
-        for claim in self.claims_for(subject_type, subject_id, statuses=statuses, as_of=as_of):
+        for claim in self.claims_for(
+            subject_type,
+            subject_id,
+            statuses=statuses,
+            as_of=as_of,
+            believed_as_of=believed_as_of,
+        ):
             evidence = list(claim.evidence_doc_ids or [])
             if not evidence:
                 continue
@@ -659,5 +728,137 @@ class GraphRepository:
             remaining = [evidence for evidence in (entity.evidence_doc_ids or []) if evidence != doc_id]
             entity.evidence_doc_ids = remaining
             entity.updated_at = utcnow()
+
+    def paths_from(
+        self,
+        *,
+        start_type: str,
+        start_id: str,
+        principal: Principal,
+        relationship_types: list[str] | None = None,
+        max_depth: int = 2,
+        limit: int = 50,
+        as_of: datetime | None = None,
+    ) -> list[dict]:
+        """Bounded multi-hop paths; every edge's evidence must be viewer-visible."""
+        max_depth = max(1, min(int(max_depth), 3))
+        limit = max(1, min(int(limit), 200))
+        rel_types = [r.strip().lower() for r in (relationship_types or []) if r.strip()]
+        rows = self._session.execute(
+            sql("""
+                WITH RECURSIVE walk AS (
+                    SELECT
+                        r.relationship_id,
+                        r.from_type AS start_type,
+                        r.from_id AS start_id,
+                        r.to_type AS end_type,
+                        r.to_id AS end_id,
+                        r.relationship_type,
+                        r.evidence_doc_ids,
+                        1 AS depth,
+                        ARRAY[
+                            r.from_type || ':' || r.from_id,
+                            r.to_type || ':' || r.to_id
+                        ]::text[] AS node_path,
+                        ARRAY[r.relationship_id]::text[] AS edge_path
+                    FROM relationships r
+                    WHERE r.workspace_id = :workspace_id
+                      AND r.status = 'active'
+                      AND r.from_type = :start_type
+                      AND r.from_id = :start_id
+                      AND (
+                          CAST(:rel_types AS text[]) IS NULL
+                          OR r.relationship_type = ANY(CAST(:rel_types AS text[]))
+                      )
+                      AND (CAST(:as_of AS timestamptz) IS NULL
+                           OR ((r.valid_from IS NULL OR r.valid_from <= :as_of)
+                               AND (r.valid_to IS NULL OR r.valid_to > :as_of)))
+                    UNION ALL
+                    SELECT
+                        r.relationship_id,
+                        w.start_type,
+                        w.start_id,
+                        r.to_type,
+                        r.to_id,
+                        r.relationship_type,
+                        r.evidence_doc_ids,
+                        w.depth + 1,
+                        w.node_path || (r.to_type || ':' || r.to_id),
+                        w.edge_path || r.relationship_id
+                    FROM walk w
+                    JOIN relationships r
+                      ON r.workspace_id = :workspace_id
+                     AND r.status = 'active'
+                     AND r.from_type = w.end_type
+                     AND r.from_id = w.end_id
+                     AND (
+                          CAST(:rel_types AS text[]) IS NULL
+                          OR r.relationship_type = ANY(CAST(:rel_types AS text[]))
+                     )
+                     AND (CAST(:as_of AS timestamptz) IS NULL
+                          OR ((r.valid_from IS NULL OR r.valid_from <= :as_of)
+                              AND (r.valid_to IS NULL OR r.valid_to > :as_of)))
+                     AND NOT (r.to_type || ':' || r.to_id = ANY(w.node_path))
+                    WHERE w.depth < :max_depth
+                )
+                SELECT *
+                FROM walk
+                ORDER BY depth, relationship_id
+                LIMIT :limit
+            """),
+            {
+                "workspace_id": self._ws,
+                "start_type": start_type,
+                "start_id": start_id,
+                "rel_types": rel_types or None,
+                "as_of": as_of,
+                "max_depth": max_depth,
+                "limit": limit * 5,
+            },
+        ).mappings()
+
+        paths: list[dict] = []
+        for row in rows:
+            evidence = list(row["evidence_doc_ids"] or [])
+            if not evidence:
+                continue
+            visible = self.visible_evidence_doc_ids(evidence, principal)
+            if len(visible) != len(set(evidence)):
+                continue
+            # Re-check every edge on the path for ACL.
+            edge_ids = list(row["edge_path"] or [])
+            ok = True
+            edges_out: list[dict] = []
+            for edge_id in edge_ids:
+                rel = self._session.get(Relationship, edge_id)
+                if rel is None:
+                    ok = False
+                    break
+                edge_evidence = list(rel.evidence_doc_ids or [])
+                edge_visible = self.visible_evidence_doc_ids(edge_evidence, principal)
+                if len(edge_visible) != len(set(edge_evidence)):
+                    ok = False
+                    break
+                edges_out.append(
+                    {
+                        "relationship_id": rel.relationship_id,
+                        "from": {"type": rel.from_type, "id": rel.from_id},
+                        "to": {"type": rel.to_type, "id": rel.to_id},
+                        "relationship_type": rel.relationship_type,
+                        "evidence_doc_ids": edge_visible,
+                    }
+                )
+            if not ok:
+                continue
+            paths.append(
+                {
+                    "nodes": list(row["node_path"] or []),
+                    "edges": edges_out,
+                    "depth": int(row["depth"]),
+                }
+            )
+            if len(paths) >= limit:
+                break
+        return paths
 
 

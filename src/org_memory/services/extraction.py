@@ -295,6 +295,9 @@ class ExtractionService:
             name = str(item.get("name", "")).strip()
             if not entity_type or not name:
                 continue
+            if not registry.is_known_entity_type(entity_type):
+                summary["dropped_untyped"] += 1
+                continue
             if not _quote_is_supported(item.get("evidence_quote"), source_window):
                 summary["dropped_unverifiable"] += 1
                 continue
@@ -317,6 +320,10 @@ class ExtractionService:
                 continue
             if not registry.is_known_relationship_type(rel_type):
                 # Unknown types never become active organizational truth.
+                summary["dropped_untyped"] += 1
+                continue
+            rel_def = registry.relationship_types[rel_type]
+            if from_ref[0] not in rel_def.from_types or to_ref[0] not in rel_def.to_types:
                 summary["dropped_untyped"] += 1
                 continue
             confidence = _parse_confidence(item.get("confidence"))
@@ -427,31 +434,8 @@ class ExtractionService:
             ]
             if len(exact_people) == 1:
                 return ("person", exact_people[0].canonical_id)
-            cached = self._mention_cache.get(normalized)
-            if normalized in self._mention_cache:
-                if cached is None:
-                    summary["skipped_mentions"] += 1
-                return cached
-
-            vectors, tokens = self._embedder.embed_texts([f"person name: {name}"])
-            with session_scope() as spend_session:
-                SpendRepository(spend_session).record(
-                    "identity_mention",
-                    "embedding",
-                    self._embedder.model_name,
-                    tokens,
-                )
-            candidates = self._persons.semantic_identity_candidates(
-                vectors[0],
-                self._embedder.model_name,
-                min_similarity=max(get_settings().identity_candidate_similarity, 0.92),
-                limit=2,
-            )
-            if len(candidates) == 1:
-                resolved = ("person", candidates[0][0].canonical_id)
-                self._mention_cache[normalized] = resolved
-                return resolved
-            self._mention_cache[normalized] = None
+            # Embeddings only propose identity merges elsewhere; never bind
+            # extraction mentions from semantic similarity alone.
             summary["skipped_mentions"] += 1
             return None
         if ref_type == "entity":

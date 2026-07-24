@@ -66,6 +66,14 @@ class RetentionService:
                 self._objects.delete(key)
         doc.title = ""
         doc.rendered_text = ""
+        doc.author_display_name = ""
+        doc.author_email = ""
+        doc.author_external_id = ""
+        doc.deep_link = ""
         doc.doc_metadata = {**doc.doc_metadata, "purged_at": utcnow().isoformat()}
         doc.deleted = True
         doc.updated_at = utcnow()
+        self._session.execute(
+            sql("DELETE FROM document_participants WHERE doc_id = :doc_id"),
+            {"doc_id": doc.doc_id},
+        )

@@ -101,15 +101,19 @@ def test_promote_writes_claim_and_supersedes_rivals(monkeypatch) -> None:
         object_text="VP",
         confidence=1.0,
         evidence_doc_ids=["doc:1"],
+        created_by="agent_promote:user:11111111-1111-1111-1111-111111111111",
     )
     proposal = SimpleNamespace(proposal_id="prop-1")
     service._graph = MagicMock()
     service._graph.visible_evidence_doc_ids.return_value = ["doc:1"]
     service._graph.latest_evidence_time.return_value = None
     service._graph.add_claim.return_value = claim
+    service._graph.supersede_slot_rivals.return_value = []
     service._proposals = MagicMock()
     service._proposals.upsert_pending.return_value = proposal
     service._jobs = MagicMock()
+    service._subject_exists = MagicMock(return_value=True)
+    service._require_content_support = MagicMock()
 
     result = service.promote(
         principal=_principal(),

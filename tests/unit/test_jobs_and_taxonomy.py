@@ -20,4 +20,4 @@ def test_pilot_taxonomy_registry_loads() -> None:
     root = Path(__file__).resolve().parents[2] / "config" / "taxonomy_registry"
     registry = load_taxonomy_registry(root)
     assert len(registry.predicates) >= 1
-    assert not hasattr(registry, "entity_types")
+    assert "person" in registry.entity_types

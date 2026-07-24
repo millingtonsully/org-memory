@@ -6,7 +6,7 @@ and scoping run automatically. No principal header; visibility comes from the en
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from org_memory.api.deps import get_ingest_service, require_api_key
@@ -24,16 +24,21 @@ class IngressResponse(BaseModel):
 
 
 @router.post("/ingress/envelope", response_model=IngressResponse)
-def ingest_envelope(
+async def ingest_envelope(
+    request: Request,
     envelope: ChangeEnvelope,
     ingest: IngestService = Depends(get_ingest_service),
 ) -> IngressResponse:
     from org_memory.core.metrics import INGEST_FAIL, INGEST_OK
 
+    raw_payload = await request.body()
+    if not raw_payload:
+        raw_payload = envelope.model_dump_json().encode("utf-8")
+
     try:
         result = ingest.ingest_envelope(
             envelope,
-            raw_payload=envelope.model_dump_json().encode("utf-8"),
+            raw_payload=raw_payload,
         )
     except Exception as exc:
         INGEST_FAIL.inc()

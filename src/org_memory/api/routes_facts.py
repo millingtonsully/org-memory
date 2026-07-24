@@ -36,6 +36,13 @@ class QueryFactsRequest(BaseModel):
             "When omitted, returns currently active open-interval claims."
         ),
     )
+    believed_as_of: datetime | None = Field(
+        default=None,
+        description=(
+            "System-time point: what the service believed then "
+            "(recorded_at <= believed_as_of < invalidated_at)."
+        ),
+    )
     limit: int = Field(default=50, ge=1, le=200)
 
 
@@ -56,7 +63,11 @@ def query_facts(
     else:
         predicate = None
 
-    statuses = ["active", "superseded"] if body.as_of is not None else ["active"]
+    statuses = (
+        ["active", "superseded"]
+        if body.as_of is not None or body.believed_as_of is not None
+        else ["active"]
+    )
     graph = GraphRepository(session)
     rows = graph.claims_for_viewer(
         body.subject_type.strip().lower(),
@@ -64,6 +75,7 @@ def query_facts(
         principal,
         statuses=statuses,
         as_of=body.as_of,
+        believed_as_of=body.believed_as_of,
     )
     facts = []
     truncated = False
@@ -90,6 +102,10 @@ def query_facts(
                 "status": claim.status,
                 "valid_from": claim.valid_from.isoformat() if claim.valid_from else None,
                 "valid_to": claim.valid_to.isoformat() if claim.valid_to else None,
+                "recorded_at": claim.recorded_at.isoformat() if claim.recorded_at else None,
+                "invalidated_at": (
+                    claim.invalidated_at.isoformat() if claim.invalidated_at else None
+                ),
                 "evidence_doc_ids": evidence_doc_ids,
                 "evidence_quotes": visible_quotes,
                 "updated_at": claim.updated_at.isoformat(),
@@ -105,7 +121,43 @@ def query_facts(
         "subject_id": body.subject_id.strip(),
         "predicate": predicate,
         "as_of": body.as_of.isoformat() if body.as_of else None,
+        "believed_as_of": body.believed_as_of.isoformat() if body.believed_as_of else None,
         "facts": facts,
         "returned": len(facts),
         "truncated": truncated,
+    }
+
+
+class QueryPathsRequest(BaseModel):
+    start_type: str = Field(min_length=1)
+    start_id: str = Field(min_length=1)
+    relationship_types: list[str] = Field(default_factory=list)
+    max_depth: int = Field(default=2, ge=1, le=3)
+    limit: int = Field(default=50, ge=1, le=200)
+    as_of: datetime | None = None
+
+
+@router.post("/tools/query_paths")
+def query_paths(
+    body: QueryPathsRequest,
+    principal: Principal = Depends(bind_principal),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Deterministic multi-hop relationship walk (Postgres recursive CTE)."""
+    paths = GraphRepository(session).paths_from(
+        start_type=body.start_type.strip().lower(),
+        start_id=body.start_id.strip(),
+        principal=principal,
+        relationship_types=body.relationship_types,
+        max_depth=body.max_depth,
+        limit=body.limit,
+        as_of=body.as_of,
+    )
+    return {
+        "start": {
+            "type": body.start_type.strip().lower(),
+            "id": body.start_id.strip(),
+        },
+        "paths": paths,
+        "returned": len(paths),
     }

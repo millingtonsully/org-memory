@@ -50,8 +50,6 @@ class LegalHoldRepository:
             if hold.scope_type == "source_system" and hold.scope_value == doc.source_system:
                 return True
             if hold.scope_type == "person":
-                if hold.scope_value in (doc.author_external_id, doc.author_email):
-                    return True
                 if participant_person_ids is None:
                     participant_person_ids = self._participant_person_ids(doc.doc_id)
                 if hold.scope_value in participant_person_ids:

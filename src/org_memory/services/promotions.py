@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from org_memory.core.settings import get_settings
-from org_memory.db.orm import Claim, TaxonomyProposal
+from org_memory.db.orm import Claim, Document, Entity, Person, TaxonomyProposal
 from org_memory.db.repositories import GraphRepository, JobRepository
 from org_memory.db.repositories.proposals import TaxonomyProposalRepository
 from org_memory.domain.fact_lifecycle import FactStatus
@@ -35,6 +35,7 @@ class PromotionService:
         host_entity_id: str = "",
         source_kind: str = "",
         source_id: str = "",
+        evidence_quote: str = "",
     ) -> dict:
         registry = get_taxonomy_registry()
         subject_type = subject_type.strip().lower()
@@ -66,16 +67,26 @@ class PromotionService:
                 f"subject_type {subject_type!r} not allowed for predicate {predicate!r}"
             )
 
+        subject_id = om_canonical_id.strip()
+        if not self._subject_exists(subject_type, subject_id):
+            raise ValueError(
+                f"Unknown subject {subject_type}:{subject_id}; "
+                "om_canonical_id must reference an existing person or entity."
+            )
+
         visible = self._graph.visible_evidence_doc_ids(evidence_doc_ids, principal)
         if len(set(visible)) != len(set(evidence_doc_ids)):
             raise ValueError("Every evidence_doc_id must exist and be visible to the viewer.")
 
+        quote = (evidence_quote or value).strip()
+        self._require_content_support(evidence_doc_ids, quote)
+
         settings = get_settings()
         created_by = f"agent_promote:{principal.principal_id}"
-        quotes = [
+        quotes: list[dict] = [
             {
                 "doc_id": doc_id,
-                "quote": f"agent_promote:{taxonomy_key}.{field_key}={value}",
+                "quote": quote,
             }
             for doc_id in evidence_doc_ids
         ]
@@ -86,23 +97,32 @@ class PromotionService:
             Claim(
                 workspace_id=settings.workspace_id,
                 subject_type=subject_type,
-                subject_id=om_canonical_id.strip(),
+                subject_id=subject_id,
                 predicate=predicate,
                 object_text=value,
                 confidence=1.0,
                 status=FactStatus.active.value,
                 evidence_doc_ids=sorted(set(evidence_doc_ids)),
                 evidence_quotes=quotes,
-                origin_subject_id=om_canonical_id.strip(),
+                origin_subject_id=subject_id,
                 created_by=created_by,
                 decided_by=f"agent_promote:{principal.principal_id}",
                 valid_from=self._graph.latest_evidence_time(evidence_doc_ids),
             )
         )
         if pred_def.mutually_exclusive:
-            self._graph.supersede_slot_rivals(
+            leftover = self._graph.supersede_slot_rivals(
                 claim, f"agent_promote:{principal.principal_id}"
             )
+            if leftover:
+                self._jobs.enqueue(
+                    JobType.resolve_claim_conflict,
+                    {
+                        "subject_type": claim.subject_type,
+                        "subject_id": claim.subject_id,
+                        "predicate": claim.predicate,
+                    },
+                )
 
         rank = precedence_rank(
             created_by=created_by,
@@ -134,3 +154,25 @@ class PromotionService:
             "predicate": predicate,
             "status": "pending",
         }
+
+    def _subject_exists(self, subject_type: str, subject_id: str) -> bool:
+        if subject_type == "person":
+            person = self._session.get(Person, subject_id)
+            return person is not None and person.merged_into_id is None
+        entity = self._session.get(Entity, subject_id)
+        return entity is not None and entity.entity_type == subject_type
+
+    def _require_content_support(self, evidence_doc_ids: list[str], needle: str) -> None:
+        """Require the asserted text (or quote) to appear in every evidence document."""
+        needle_l = needle.casefold()
+        if not needle_l:
+            raise ValueError("evidence quote/value must be nonempty")
+        for doc_id in evidence_doc_ids:
+            doc = self._session.get(Document, doc_id)
+            if doc is None:
+                raise ValueError(f"evidence document not found: {doc_id}")
+            hay = f"{doc.title or ''}\n{doc.rendered_text or ''}".casefold()
+            if needle_l not in hay:
+                raise ValueError(
+                    f"Evidence document {doc_id} does not contain the asserted value/quote."
+                )

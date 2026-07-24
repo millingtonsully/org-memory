@@ -6,7 +6,9 @@ field updates. Org Memory does not run workflows, automations, or entity LWW.
 ## Pull / push
 
 - Pull: `GET /v1/taxonomy-proposals`
-- Push: optional webhook when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set
+- Push: optional webhook when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set.
+  When `TAXONOMY_PROPOSAL_WEBHOOK_SECRET` is set, requests include
+  `X-Org-Memory-Signature: sha256=<hex>` over the exact JSON body.
 - Agent promote: `POST /v1/promotions` creates an OM claim and a pending proposal
 
 ## Proposal payload fields

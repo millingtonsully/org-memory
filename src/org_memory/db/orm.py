@@ -167,6 +167,8 @@ class Relationship(Base):
     relationship_type: Mapped[str] = mapped_column(String, nullable=False)
     valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     status: Mapped[str] = mapped_column(String, default="proposed")
     evidence_doc_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
@@ -181,9 +183,11 @@ class Relationship(Base):
 
 
 class Claim(Base):
-    """Extracted statement about a subject with a world-validity window.
+    """Extracted statement about a subject with world- and system-time axes.
 
-    Validity is half-open: valid_from <= as_of AND (valid_to IS NULL OR valid_to > as_of).
+    World validity is half-open: valid_from <= as_of AND (valid_to IS NULL OR valid_to > as_of).
+    System belief: recorded_at <= believed_as_of AND
+    (invalidated_at IS NULL OR invalidated_at > believed_as_of).
     """
 
     __tablename__ = "claims"
@@ -196,6 +200,8 @@ class Claim(Base):
     object_text: Mapped[str] = mapped_column(Text, nullable=False)
     valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     status: Mapped[str] = mapped_column(String, default="proposed")
     evidence_doc_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)

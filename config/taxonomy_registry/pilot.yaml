@@ -1,14 +1,12 @@
 # STARTER SCHEMA — not a fixed product taxonomy.
 # Replace or extend the YAML in this directory for a real deployment.
 # The service loads every *.yaml here (see TAXONOMY_REGISTRY_DIR); unknown
-# predicates/relationship types never become active organizational truth.
-# Entity names are free-form at runtime. Optional entity_types blocks in YAML
-# are documentation only and are ignored by the loader.
+# entity types / predicates / relationship types never become active org truth.
+# Instance names are free-form; entity *type* keys are closed and enforced.
 #
 # Bindings map to caller-platform taxonomy_key.field_key for taxonomy_proposals.
 # structured_field_keys (e.g. hr.manager) are example connector field names.
 version: 1
-# Documentation only (ignored by loader):
 entity_types:
   - key: person
     description: Canonical person in the org graph

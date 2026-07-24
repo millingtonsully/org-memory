@@ -215,6 +215,8 @@ def upgrade() -> None:
             relationship_type               text NOT NULL,
             valid_from                      timestamptz,
             valid_to                        timestamptz,
+            recorded_at                     timestamptz NOT NULL DEFAULT now(),
+            invalidated_at                  timestamptz,
             confidence                      double precision NOT NULL DEFAULT 1.0,
             status                          text NOT NULL DEFAULT 'proposed',
             evidence_doc_ids                text[] NOT NULL DEFAULT '{}',
@@ -251,6 +253,8 @@ def upgrade() -> None:
             object_text             text NOT NULL,
             valid_from              timestamptz,
             valid_to                timestamptz,
+            recorded_at             timestamptz NOT NULL DEFAULT now(),
+            invalidated_at          timestamptz,
             confidence              double precision NOT NULL DEFAULT 1.0,
             status                  text NOT NULL DEFAULT 'proposed',
             evidence_doc_ids        text[] NOT NULL DEFAULT '{}',
@@ -525,6 +529,20 @@ def upgrade() -> None:
           AND payload ? 'subject_type'
           AND payload ? 'subject_id'
           AND payload ? 'predicate'
+    """)
+    op.execute("""
+        CREATE UNIQUE INDEX ux_jobs_resolve_relationship_conflict_open
+        ON jobs (
+            workspace_id,
+            (payload->>'from_type'),
+            (payload->>'from_id'),
+            (payload->>'relationship_type')
+        )
+        WHERE job_type = 'resolve_relationship_conflict'
+          AND status IN ('pending', 'running')
+          AND payload ? 'from_type'
+          AND payload ? 'from_id'
+          AND payload ? 'relationship_type'
     """)
     op.execute("""
         CREATE UNIQUE INDEX ux_jobs_embed_chunks_open

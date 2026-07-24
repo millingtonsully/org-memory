@@ -14,6 +14,20 @@ class PlatformBinding(BaseModel):
     field_key: str = Field(min_length=1)
 
 
+class EntityTypeDef(BaseModel):
+    """Closed entity *type* key. Instance names remain free-form."""
+
+    key: str = Field(min_length=1)
+    description: str = ""
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, value):
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+
 class PredicateDef(BaseModel):
     key: str = Field(min_length=1)
     subject_types: list[str] = Field(min_length=1)
@@ -51,20 +65,23 @@ class RelationshipTypeDef(BaseModel):
 
 
 class TaxonomyRegistryFile(BaseModel):
-    """One YAML file. Entity names are free-form at runtime; only predicates
-    and relationship_types are closed. Optional ``entity_types`` keys in YAML
-    are ignored (documentation only)."""
-
-    model_config = {"extra": "ignore"}
+    """One YAML file. Entity *types*, predicates, and relationship_types are closed.
+    Instance names stay free-form."""
 
     version: int = Field(ge=1)
+    entity_types: list[EntityTypeDef] = Field(default_factory=list)
     predicates: list[PredicateDef] = Field(default_factory=list)
     relationship_types: list[RelationshipTypeDef] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_content(self) -> TaxonomyRegistryFile:
-        if not self.predicates and not self.relationship_types:
-            raise ValueError("registry must define at least one predicate or relationship_type")
+        if not self.predicates and not self.relationship_types and not self.entity_types:
+            raise ValueError(
+                "registry must define at least one entity_type, predicate, or relationship_type"
+            )
+        et_keys = [e.key for e in self.entity_types]
+        if len(et_keys) != len(set(et_keys)):
+            raise ValueError("duplicate entity_type keys in registry")
         pred_keys = [p.key for p in self.predicates]
         if len(pred_keys) != len(set(pred_keys)):
             raise ValueError("duplicate predicate keys in registry")
@@ -79,10 +96,15 @@ class TaxonomyRegistry:
 
     def __init__(self, files: list[TaxonomyRegistryFile]):
         self._files = files
+        self.entity_types: dict[str, EntityTypeDef] = {}
         self.predicates: dict[str, PredicateDef] = {}
         self.relationship_types: dict[str, RelationshipTypeDef] = {}
         self._structured_to_predicate: dict[str, PredicateDef] = {}
         for file in files:
+            for et in file.entity_types:
+                if et.key in self.entity_types:
+                    raise ValueError(f"duplicate entity_type key: {et.key}")
+                self.entity_types[et.key] = et
             for pred in file.predicates:
                 if pred.key in self.predicates:
                     raise ValueError(f"duplicate predicate key across files: {pred.key}")
@@ -96,6 +118,9 @@ class TaxonomyRegistry:
                 if rel.key in self.relationship_types:
                     raise ValueError(f"duplicate relationship_type key across files: {rel.key}")
                 self.relationship_types[rel.key] = rel
+
+    def is_known_entity_type(self, entity_type: str) -> bool:
+        return entity_type.strip().lower() in self.entity_types
 
     def is_known_predicate(self, predicate: str) -> bool:
         return predicate.strip().lower() in self.predicates
@@ -120,6 +145,9 @@ class TaxonomyRegistry:
     def ground_truth_predicate_for_structured_key(self, key: str) -> PredicateDef | None:
         return self._structured_to_predicate.get(key.strip())
 
+    def allowed_entity_type_keys(self) -> list[str]:
+        return sorted(self.entity_types)
+
     def allowed_predicate_keys(self) -> list[str]:
         return sorted(self.predicates)
 
@@ -127,12 +155,14 @@ class TaxonomyRegistry:
         return sorted(self.relationship_types)
 
     def prompt_constraint_block(self) -> str:
+        types = ", ".join(self.allowed_entity_type_keys()) or "(none)"
         preds = ", ".join(self.allowed_predicate_keys()) or "(none)"
         rels = ", ".join(self.allowed_relationship_keys()) or "(none)"
         return (
             "Closed schema (taxonomy_registry):\n"
+            f"- Allowed entity types ONLY: {types}\n"
             f"- Allowed claim predicates ONLY: {preds}\n"
             f"- Allowed relationship_type values ONLY: {rels}\n"
-            "- Do not invent predicates or relationship types outside these lists.\n"
+            "- Do not invent types, predicates, or relationship types outside these lists.\n"
             "- If the text supports a fact outside the lists, omit it."
         )

@@ -28,7 +28,7 @@ def _document_visibility_filters_sql(alias: str = "d") -> str:
         AND (CAST(:source_system AS text) IS NULL OR {a}.source_system = :source_system)
         AND (
             CAST(:author_patterns AS text[]) IS NULL
-            OR {a}.author_display_name ILIKE ANY(CAST(:author_patterns AS text[]))
+            OR {a}.author_display_name ILIKE ANY(CAST(:author_patterns AS text[])) ESCAPE E'\\\\'
         )
         AND (
             CAST(:author_person_ids AS text[]) IS NULL
@@ -62,7 +62,7 @@ def _common_filters_sql() -> str:
     Chunk columns own source_type / author / event_time / doc_id for ranking filters;
     document columns own ACL, source_system, and updated_at.
     """
-    return f"""
+    return """
         c.workspace_id = :workspace_id
         AND c.deleted = false
         AND c.chunk_role = 'child'
@@ -72,7 +72,7 @@ def _common_filters_sql() -> str:
         AND (CAST(:source_type AS text) IS NULL OR c.source_type = :source_type)
         AND (CAST(:source_system AS text) IS NULL OR d.source_system = :source_system)
         AND (CAST(:author_patterns AS text[]) IS NULL
-             OR c.author_display_name ILIKE ANY(CAST(:author_patterns AS text[])))
+             OR c.author_display_name ILIKE ANY(CAST(:author_patterns AS text[])) ESCAPE E'\\\\')
         AND (
             CAST(:author_person_ids AS text[]) IS NULL
             OR EXISTS (

@@ -110,7 +110,7 @@ class Worker:
                 jobs.mark_failed(
                     job,
                     f"{type(exc).__name__}: {exc}",
-                    raw_error=str(getattr(exc, "raw_response", "")),
+                    raw_error=str(getattr(exc, "raw_response", ""))[:2000],
                 )
                 logger.error(
                     "worker.job_failed",

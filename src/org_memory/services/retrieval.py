@@ -43,16 +43,20 @@ class RetrievalService:
         self._persons = person_repo
 
     def _expand_author(self, author: str | None) -> list[str] | None:
-        """Expand author filter through entity aliases."""
+        """Expand author filter through entity aliases; escape ILIKE wildcards."""
         if not author:
             return None
-        patterns = {f"%{author}%"}
+
+        def _escape(value: str) -> str:
+            return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+        patterns = {f"%{_escape(author)}%"}
         if self._persons is not None:
             for person in self._persons.search_by_name(author, limit=3):
-                patterns.add(f"%{person.display_name}%")
+                patterns.add(f"%{_escape(person.display_name)}%")
                 for alias in self._persons.aliases_for(person.canonical_id):
                     if alias.display_name:
-                        patterns.add(f"%{alias.display_name}%")
+                        patterns.add(f"%{_escape(alias.display_name)}%")
         return sorted(patterns)
 
     def _expand_canonical_author(self, person_id: str) -> list[str] | None:

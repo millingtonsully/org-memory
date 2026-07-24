@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from org_memory.api.deps import get_session, require_api_key
+from org_memory.api.deps import bind_admin, get_session, require_api_key
 from org_memory.core.errors import NotFoundError
 from org_memory.db.repositories.proposals import TaxonomyProposalRepository
+from org_memory.domain.models import Principal
 from org_memory.services.proposal_webhook import proposal_payload
 from org_memory.services.taxonomy_proposals import TaxonomyProposalService
 
@@ -25,6 +26,7 @@ class ProposalDecision(BaseModel):
 @router.get("")
 def list_pending_proposals(
     limit: int = Query(default=100, ge=1, le=500),
+    _admin: Principal = Depends(bind_admin),
     session: Session = Depends(get_session),
 ) -> dict:
     rows = TaxonomyProposalRepository(session).list_pending(limit=limit)
@@ -35,7 +37,10 @@ def list_pending_proposals(
 
 
 @router.post("/generate")
-def generate_proposals(session: Session = Depends(get_session)) -> dict:
+def generate_proposals(
+    _admin: Principal = Depends(bind_admin),
+    session: Session = Depends(get_session),
+) -> dict:
     """Manual/ops trigger; workers also enqueue generate_taxonomy_proposals."""
     return TaxonomyProposalService(session).generate_from_active_claims()
 
@@ -44,6 +49,7 @@ def generate_proposals(session: Session = Depends(get_session)) -> dict:
 def mark_applied(
     proposal_id: str,
     body: ProposalDecision,
+    _admin: Principal = Depends(bind_admin),
     session: Session = Depends(get_session),
 ) -> dict:
     try:
@@ -57,6 +63,7 @@ def mark_applied(
 def mark_rejected(
     proposal_id: str,
     body: ProposalDecision,
+    _admin: Principal = Depends(bind_admin),
     session: Session = Depends(get_session),
 ) -> dict:
     try:
