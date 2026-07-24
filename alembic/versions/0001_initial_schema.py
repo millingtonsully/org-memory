@@ -1,7 +1,8 @@
-"""Single initial schema (squashed).
+"""Single schema revision (squashed).
 
-Creates the full Postgres shape this app expects today. There is no migration
-history before this revision — fresh databases only need `alembic upgrade head`.
+This repo keeps exactly one Alembic revision: 0001. Edit this file in place when
+the schema changes. Do not add 0002, 0003, etc. Fresh databases run
+`alembic upgrade head` once against this file.
 """
 
 from alembic import op
@@ -50,6 +51,8 @@ def upgrade() -> None:
             doc_id               text NOT NULL REFERENCES documents (doc_id),
             workspace_id         text NOT NULL,
             chunk_index          integer NOT NULL,
+            chunk_role           text NOT NULL DEFAULT 'child',
+            parent_chunk_id      text REFERENCES chunks (chunk_id),
             text                 text NOT NULL,
             embedding            vector(1536),
             embedding_model      text,
@@ -72,6 +75,10 @@ def upgrade() -> None:
     op.execute("CREATE INDEX ix_chunks_workspace ON chunks (workspace_id)")
     op.execute("CREATE INDEX ix_chunks_event_time ON chunks (event_time)")
     op.execute("""
+        CREATE INDEX ix_chunks_parent ON chunks (parent_chunk_id)
+        WHERE parent_chunk_id IS NOT NULL
+    """)
+    op.execute("""
         CREATE INDEX ix_chunks_embedding_hnsw ON chunks
         USING hnsw (embedding vector_cosine_ops)
         WITH (m = 16, ef_construction = 64)
@@ -80,7 +87,7 @@ def upgrade() -> None:
     op.execute("CREATE INDEX ix_chunks_principals ON chunks USING gin (allowed_principals)")
     op.execute("""
         CREATE INDEX ix_chunks_unembedded ON chunks (chunk_id)
-        WHERE embedding IS NULL AND deleted = false
+        WHERE embedding IS NULL AND deleted = false AND chunk_role = 'child'
     """)
 
     op.execute("""
@@ -169,6 +176,7 @@ def upgrade() -> None:
             window_hash    text NOT NULL,
             parsed_output  jsonb NOT NULL,
             tokens         integer NOT NULL DEFAULT 0,
+            applied        boolean NOT NULL DEFAULT false,
             created_at     timestamptz NOT NULL DEFAULT now(),
             PRIMARY KEY (doc_id, content_hash, window_index)
         )

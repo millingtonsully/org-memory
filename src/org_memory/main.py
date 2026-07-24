@@ -177,7 +177,10 @@ def metrics(x_api_key: str = Header(default="")) -> Response:
 
     with session_scope() as session:
         embed_backlog = session.execute(
-            sql("SELECT count(*) AS n FROM chunks WHERE embedding IS NULL AND deleted = false")
+            sql(
+                "SELECT count(*) AS n FROM chunks "
+                "WHERE embedding IS NULL AND deleted = false AND chunk_role = 'child'"
+            )
         ).fetchone()
         EMBED_BACKLOG.set(int(embed_backlog.n) if embed_backlog else 0)
         for status, job_type, n in JobRepository(session).counts_by_status_and_type():

@@ -1,8 +1,9 @@
-"""Ingest Change Envelopes into documents, chunks, and jobs.
+"""Ingest Change Envelopes into documents, parent/child chunks, and jobs.
 
-Keyword search is live in the same transaction. Embedding and extraction are
-enqueued for the worker when content changes; ingest never calls a vendor on the
-request path. doc_id replays are idempotent; blob keys are versioned per event.
+Keyword search is live in the same transaction. Embedding (children only) and
+extraction are enqueued for the worker when content changes; ingest never calls
+a vendor on the request path. doc_id replays are idempotent; blob keys are
+versioned per event. Collaboration rebuilds are enqueued with queue debounce.
 
 Blob order: compute key → mutate DB → object_store.put. If put fails, the
 request transaction rolls back (no rows pointing at a missing blob). If put
@@ -29,7 +30,7 @@ from org_memory.db.repositories import (
 from org_memory.domain.jobs import JobType
 from org_memory.domain.models import ChangeEnvelope, ChangeKind
 from org_memory.ports.object_store import ObjectStore
-from org_memory.services.chunking import chunk_text
+from org_memory.services.chunking import chunk_document
 from org_memory.services.entity_resolution import EntityResolutionService
 from org_memory.services.structured_writers import (
     RegistryBackedStructuredFieldWriter,
@@ -165,31 +166,59 @@ class IngestService:
 
         chunk_count = 0
         if content_changed:
-            children = chunk_text(envelope.text, title=envelope.title)
-            chunks = [
-                Chunk(
-                    chunk_id=f"{doc_id}#{child.index}",
-                    doc_id=doc_id,
-                    workspace_id=workspace_id,
-                    chunk_index=child.index,
-                    text=child.text,
-                    embedding=None,
-                    embedding_model=None,
-                    source_type=envelope.source_type,
-                    title=envelope.title,
-                    author_display_name=envelope.author_display_name,
-                    event_time=envelope.event_time,
-                    updated_at=utcnow(),
-                    deep_link=envelope.deep_link,
-                    org_visible=stored.org_visible,
-                    allowed_principals=stored.allowed_principals,
-                    deleted=False,
+            parents = chunk_document(envelope.text, title=envelope.title)
+            chunks: list[Chunk] = []
+            for parent in parents:
+                parent_id = f"{doc_id}#p{parent.index}"
+                chunks.append(
+                    Chunk(
+                        chunk_id=parent_id,
+                        doc_id=doc_id,
+                        workspace_id=workspace_id,
+                        chunk_index=parent.index,
+                        chunk_role="parent",
+                        parent_chunk_id=None,
+                        text=parent.text,
+                        embedding=None,
+                        embedding_model=None,
+                        source_type=envelope.source_type,
+                        title=envelope.title,
+                        author_display_name=envelope.author_display_name,
+                        event_time=envelope.event_time,
+                        updated_at=utcnow(),
+                        deep_link=envelope.deep_link,
+                        org_visible=stored.org_visible,
+                        allowed_principals=stored.allowed_principals,
+                        deleted=False,
+                    )
                 )
-                for child in children
-            ]
+                for child in parent.children:
+                    chunks.append(
+                        Chunk(
+                            chunk_id=f"{doc_id}#{child.index}",
+                            doc_id=doc_id,
+                            workspace_id=workspace_id,
+                            chunk_index=child.index,
+                            chunk_role="child",
+                            parent_chunk_id=parent_id,
+                            text=child.text,
+                            embedding=None,
+                            embedding_model=None,
+                            source_type=envelope.source_type,
+                            title=envelope.title,
+                            author_display_name=envelope.author_display_name,
+                            event_time=envelope.event_time,
+                            updated_at=utcnow(),
+                            deep_link=envelope.deep_link,
+                            org_visible=stored.org_visible,
+                            allowed_principals=stored.allowed_principals,
+                            deleted=False,
+                        )
+                    )
             self._docs.replace_chunks(doc_id, chunks)
-            chunk_count = len(chunks)
-            if chunks:
+            child_count = sum(1 for c in chunks if c.chunk_role == "child")
+            chunk_count = child_count
+            if child_count:
                 self._jobs.enqueue(
                     JobType.embed_chunks,
                     {

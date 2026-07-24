@@ -8,7 +8,7 @@ External sync workers push structured change events into an ingress API. Tools c
 
 ## How it works
 
-The API accepts ChangeEnvelope JSON (the ingest contract for one content change). It archives the raw payload, writes documents and text chunks into Postgres, and enqueues background jobs for embeddings and graph extraction. When someone searches, the service embeds the query, fetches vector and keyword candidates under access-control filters, merges those ranked lists with reciprocal rank fusion, then reranks with a cross-encoder. A separate worker process drains the job queue. Embedding and chat vendor calls run in that worker, not inside the HTTP request path.
+The API accepts ChangeEnvelope JSON (the ingest contract for one content change). It archives the raw payload, writes documents and parent/child text chunks into Postgres, and enqueues background jobs for embeddings and graph extraction. When someone searches, the service embeds the query, fetches vector and keyword candidates under access-control filters, merges those ranked lists with reciprocal rank fusion, then reranks with a cross-encoder when the shortlist is larger than the requested limit. A separate worker process drains the job queue. Embedding and chat vendor calls run in that worker, not inside the HTTP request path.
 
 ---
 
@@ -32,7 +32,7 @@ The API accepts ChangeEnvelope JSON (the ingest contract for one content change)
 
 **Contracts** are under `contracts/`. The ChangeEnvelope JSON Schema is the ingest contract. Tool request schemas live under `contracts/tools/`. Example envelopes live under `contracts/fixtures/sync_envelopes/`.
 
-**Schema migrations** are under `alembic/versions/`. On a new database, run `alembic upgrade head`.
+**Database schema** lives in a single Alembic revision: `alembic/versions/0001_initial_schema.py`. On a new database, run `alembic upgrade head`. Schema changes are edited into that file in place; this project does not keep a chain of numbered migrations.
 
 ---
 
@@ -67,7 +67,7 @@ The hybrid path is:
 6. Rerank the candidate shortlist with a Voyage cross-encoder.
 7. Write a retrieval audit row (who searched, what was returned) for later review.
 
-On `worldbuilder_kb`, `author_canonical_entity_id` looks up a person by canonical id and turns that into author display names and aliases used as an author filter. If the id is unknown, the search returns an empty result set.
+On `worldbuilder_kb`, `author_canonical_entity_id` looks up a person by canonical id and filters to documents where that person is the author (`document_participants.role = 'author'`). If the id is unknown or already merged away, the search returns an empty result set. `worldbuilder_lookup` scopes evidence with `about_person_ids` (any participant role) and a query built from the person's display name and aliases.
 
 ### Graph ACL (`db/repositories/graph.py`)
 
@@ -97,7 +97,7 @@ Domain services return domain types. The HTTP layer maps those into the MCP and 
 
 ## Keyword search, BM25, and Postgres
 
-Search is hybrid: **pgvector + Postgres full-text search (`ts_rank`)**, then RRF merge, then Voyage rerank. Both channels stay inside Postgres (plus the rerank HTTP call).
+Search is hybrid: **pgvector + Postgres full-text search (`ts_rank`)**, then RRF merge, then Voyage rerank when the shortlist is larger than the requested limit. Both channels stay inside Postgres (plus the optional rerank HTTP call). Child chunks are embedded and ranked; parent section text is returned for matched children.
 
 - **Dense (pgvector):** Embed the query, find nearby chunk vectors (meaning / paraphrase match).
 - **Lexical (current):** Match query words against chunk text with Postgres FTS ordered by `ts_rank`, with ACL in the same SQL `WHERE` clause. One database, one index to keep in sync with documents. That's why this path is simple to operate on Supabase.

@@ -44,7 +44,10 @@ def deep_health(
     settings = get_settings()
 
     embed_backlog = session.execute(
-        sql("SELECT count(*) AS n FROM chunks WHERE embedding IS NULL AND deleted = false")
+        sql(
+            "SELECT count(*) AS n FROM chunks "
+            "WHERE embedding IS NULL AND deleted = false AND chunk_role = 'child'"
+        )
     ).fetchone()
     assert embed_backlog is not None
     job_repo = JobRepository(session)

@@ -199,7 +199,7 @@ class Passage(BaseModel):
     author_display_name: str
     event_time: datetime
     deep_link: str
-    score: float = Field(description="final score after fusion, decay, and rerank")
+    score: float = Field(description="final score after fusion and decay (and rerank when used)")
     rank_debug: dict = Field(
         default_factory=dict,
         description="per-channel ranks for eval and audit",

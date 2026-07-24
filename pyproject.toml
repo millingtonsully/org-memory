@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "PyYAML>=6.0",
     "prometheus_client>=0.20",
+    "tiktoken>=0.7",
 ]
 
 [project.optional-dependencies]

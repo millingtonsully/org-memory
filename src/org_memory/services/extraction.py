@@ -7,6 +7,7 @@ import hashlib
 import json
 
 import structlog
+from sqlalchemy import text as sql
 from sqlalchemy.orm import Session
 
 from org_memory.core.errors import VendorAPIError
@@ -24,9 +25,10 @@ from org_memory.taxonomy_registry import get_taxonomy_registry
 
 logger = structlog.get_logger(__name__)
 
-# ~8000 tokens at chars/4 per extraction call. This is deliberately much
-# larger than a retrieval chunk: complete extraction cost is linear in source
-# length, but larger windows avoid repeating input/output overhead.
+# Extraction windows use a large char budget (~32k chars, roughly 8k tokens on
+# English prose). This is deliberately much larger than a retrieval child chunk:
+# complete extraction cost is linear in source length, but larger windows avoid
+# repeating input/output overhead.
 _WINDOW_TARGET_CHARS = 32000
 # Tail of each window repeated at the start of the next, so a fact split
 # across a boundary is seen whole at least once. Duplicated extractions are
@@ -129,12 +131,12 @@ class ExtractionService:
         self.active_claim_slots: set[tuple[str, str, str]] = set()
 
     def extract_for_document(self, doc: Document, heartbeat=None) -> dict:
-        """Extract graph facts for one document, covering its full text."""
+        """Extract graph facts for one document, covering its full text.
+
+        LLM output and graph applies for each window are committed durably so a
+        mid-document failure retries only unfinished windows.
+        """
         self.active_claim_slots = set()
-        # A changed document replaces its prior extracted evidence. This also
-        # makes retries deterministic: rows are superseded then rebuilt from
-        # the current full document.
-        self._graph.remove_document_evidence(doc.doc_id)
         header = f"Source: {doc.source_system} | Title: {doc.title or '(untitled)'}\n"
         if doc.author_display_name:
             header += f"Author: {doc.author_display_name}\n"
@@ -151,6 +153,7 @@ class ExtractionService:
             "dropped_unverifiable": 0,
             "dropped_untyped": 0,
             "cache_hits": 0,
+            "applied_skips": 0,
         }
         total_tokens = 0
         document_context = ""
@@ -158,50 +161,81 @@ class ExtractionService:
             schema_block=get_taxonomy_registry().prompt_constraint_block()
         )
 
+        with session_scope() as probe:
+            applied_count = (
+                probe.query(ExtractionWindow)
+                .filter(
+                    ExtractionWindow.doc_id == doc.doc_id,
+                    ExtractionWindow.content_hash == content_hash,
+                    ExtractionWindow.applied == True,  # noqa: E712
+                )
+                .count()
+            )
+        if applied_count == 0:
+            with session_scope() as wipe_session:
+                GraphRepository(wipe_session).remove_extraction_evidence(doc.doc_id)
+
         for window_index, window_text in enumerate(windows):
             if heartbeat is not None:
                 heartbeat()
             window_hash = hashlib.sha256(window_text.encode("utf-8")).hexdigest()
-            cached = None
-            with session_scope() as cache_session:
-                row = cache_session.get(ExtractionWindow, (doc.doc_id, content_hash, window_index))
-                if row is not None and row.window_hash == window_hash:
-                    cached = dict(row.parsed_output)
-            if cached is not None:
-                parsed = cached
-                summary["cache_hits"] += 1
-            else:
-                # Completed windows stay checkpointed; a later failure retries
-                # unpaid windows without pretending a partial extract is finished.
-                window_header = header
-                if len(windows) > 1:
-                    window_header += f"Segment {window_index + 1} of {len(windows)}\n"
-                if document_context:
-                    window_header += (
-                        "\nPRIOR DOCUMENT CONTEXT "
-                        "(reference resolution only; not evidence):\n"
-                        f"{document_context}\n"
-                    )
-                raw, tokens = self._synthesizer.complete(
-                    system_prompt, window_header + "\n" + window_text
-                )
-                total_tokens += tokens
+            with session_scope() as durable:
+                row = durable.get(ExtractionWindow, (doc.doc_id, content_hash, window_index))
+                if (
+                    row is not None
+                    and row.window_hash == window_hash
+                    and row.applied
+                ):
+                    parsed = dict(row.parsed_output)
+                    summary["cache_hits"] += 1
+                    summary["applied_skips"] += 1
+                else:
+                    tokens = 0
+                    if row is not None and row.window_hash == window_hash:
+                        parsed = dict(row.parsed_output)
+                        summary["cache_hits"] += 1
+                        tokens = row.tokens
+                    else:
+                        window_header = header
+                        if len(windows) > 1:
+                            window_header += (
+                                f"Segment {window_index + 1} of {len(windows)}\n"
+                            )
+                        if document_context:
+                            window_header += (
+                                "\nPRIOR DOCUMENT CONTEXT "
+                                "(reference resolution only; not evidence):\n"
+                                f"{document_context}\n"
+                            )
+                        raw, tokens = self._synthesizer.complete(
+                            system_prompt, window_header + "\n" + window_text
+                        )
+                        total_tokens += tokens
+                        try:
+                            parsed = json.loads(
+                                raw.strip()
+                                .removeprefix("```json")
+                                .removesuffix("```")
+                                .strip()
+                            )
+                        except json.JSONDecodeError as exc:
+                            raise VendorAPIError(
+                                "extraction",
+                                200,
+                                f"Extractor returned non-JSON output for "
+                                f"segment {window_index + 1}/{len(windows)}",
+                                raw_response=raw,
+                            ) from exc
 
-                try:
-                    parsed = json.loads(raw.strip().removeprefix("```json").removesuffix("```").strip())
-                except json.JSONDecodeError as exc:
-                    raise VendorAPIError(
-                        "extraction",
-                        200,
-                        f"Extractor returned non-JSON output for segment {window_index + 1}/{len(windows)}",
-                        raw_response=raw,
-                    ) from exc
-                # Checkpoint outside the job transaction so a later failure
-                # does not erase paid work when the worker rolls back. Spend is
-                # recorded in the same durable transaction so metering reflects
-                # real vendor cost even if the job fails.
-                with session_scope() as cache_session:
-                    cache_session.merge(
+                    old_graph, old_persons = self._graph, self._persons
+                    self._graph = GraphRepository(durable)
+                    self._persons = PersonRepository(durable)
+                    try:
+                        self._apply_extraction(doc, parsed, summary, window_text)
+                    finally:
+                        self._graph, self._persons = old_graph, old_persons
+
+                    durable.merge(
                         ExtractionWindow(
                             doc_id=doc.doc_id,
                             content_hash=content_hash,
@@ -209,23 +243,23 @@ class ExtractionService:
                             window_hash=window_hash,
                             parsed_output=parsed,
                             tokens=tokens,
+                            applied=True,
                         )
                     )
-                    SpendRepository(cache_session).record(
-                        "extraction",
-                        "synthesis",
-                        self._synthesizer.model_name,
-                        tokens,
-                    )
+                    if tokens and (row is None or row.window_hash != window_hash):
+                        SpendRepository(durable).record(
+                            "extraction",
+                            "synthesis",
+                            self._synthesizer.model_name,
+                            tokens,
+                        )
 
-            self._apply_extraction(doc, parsed, summary, window_text)
             emitted_context = str(parsed.get("document_context", "")).strip()
             if emitted_context:
-                # Carry named referents forward so a later segment can resolve
-                # "she", "the project", etc. This context is never accepted as
-                # evidence; every stored observation still needs a quote from
-                # its own segment.
                 document_context = emitted_context[-_MAX_DOCUMENT_CONTEXT_CHARS:]
+
+        self._session.expire_all()
+        self.active_claim_slots = self._active_slots_for_document(doc)
 
         logger.info(
             "extraction.completed",
@@ -235,6 +269,21 @@ class ExtractionService:
             **summary,
         )
         return summary
+
+    def _active_slots_for_document(self, doc: Document) -> set[tuple[str, str, str]]:
+        rows = self._session.execute(
+            sql(
+                """
+                SELECT subject_type, subject_id, predicate
+                FROM claims
+                WHERE workspace_id = :workspace_id
+                  AND status = 'active'
+                  AND :doc_id = ANY(evidence_doc_ids)
+                """
+            ),
+            {"workspace_id": doc.workspace_id, "doc_id": doc.doc_id},
+        ).fetchall()
+        return {(r.subject_type, r.subject_id, r.predicate) for r in rows}
 
     def _apply_extraction(self, doc: Document, parsed: dict, summary: dict, source_window: str) -> None:
         """Write one window's parsed facts to the graph, updating summary counts."""

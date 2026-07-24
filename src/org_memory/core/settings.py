@@ -73,8 +73,15 @@ class Settings(BaseSettings):
     procedural_max_source_chars: int = 24_000
 
     fact_activation_confidence: float = 0.8
-    # Embeddings only generate a small candidate set. A structured LLM
-    # adjudication plus corroborating signals controls automatic merges.
+    # Identity auto-merge policy (intentional, do not loosen casually):
+    # 1. Embeddings only propose a small candidate set.
+    # 2. An LLM adjudication may say "same" with a confidence score.
+    # 3. Auto-merge only if confidence >= identity_merge_confidence AND
+    #    corroboration includes both a shared normalized name and a shared
+    #    email address (see has_sufficient_corroboration).
+    # Name similarity or LLM confidence alone must never auto-merge. That
+    # blocks false merges of different people with the same display name.
+    # Unsure / same-without-email cases stay as decisions for review, not merges.
     identity_candidate_similarity: float = 0.88
     identity_candidate_limit: int = 3
     identity_merge_confidence: float = 0.95
@@ -91,6 +98,7 @@ class Settings(BaseSettings):
 
     rrf_k: int = 60
     rerank_candidates: int = 100
+    collaboration_rebuild_debounce_seconds: int = 60
 
     # Closed taxonomy schema (YAML directory). Boot fails if missing/invalid.
     taxonomy_registry_dir: str = "config/taxonomy_registry"
@@ -139,6 +147,7 @@ class Settings(BaseSettings):
         "rerank_candidates",
         "spend_alert_tokens_monthly",
         "spend_hard_limit_tokens_monthly",
+        "collaboration_rebuild_debounce_seconds",
     )
     @classmethod
     def _require_positive_integer(cls, value: int) -> int:

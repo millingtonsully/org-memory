@@ -1,8 +1,8 @@
 """Entity-centric answers on viewer-scoped retrieval.
 
-Person lookup synthesizes profiles from evidence and graph facts.
-Ambiguous names return disambiguation. read_source loads documents by doc_id
-with the same ACL checks as search.
+Person lookup synthesizes profiles from participant-scoped evidence and graph
+facts. Ambiguous names return disambiguation. read_source loads documents by
+doc_id with the same ACL checks as search.
 """
 
 from __future__ import annotations
@@ -65,8 +65,9 @@ class WorldbuilderService:
 
         evidence = self._retrieval.search(
             principal=principal,
-            query=person.display_name,
+            query=self._evidence_query(person),
             limit=12,
+            about_person_ids=[person.canonical_id],
             tool_name="worldbuilder_lookup",
         )
 
@@ -139,6 +140,23 @@ class WorldbuilderService:
             return exact[0]
         return matches
 
+    def _evidence_query(self, person: Person) -> str:
+        names = [person.display_name, *(person.name_aliases or [])]
+        if self._persons is not None:
+            for alias in self._persons.aliases_for(person.canonical_id):
+                if alias.display_name:
+                    names.append(alias.display_name)
+        # Dedupe while preserving order for a stable retrieval query.
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for name in names:
+            key = name.strip().casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            ordered.append(name.strip())
+        return " ".join(ordered) if ordered else person.display_name
+
     def _render_graph_facts(self, canonical_id: str, relationships, claims) -> str:
         lines: list[str] = []
         for r, visible_doc_ids in relationships:
@@ -173,10 +191,25 @@ class WorldbuilderService:
                 continue
             chunks = (
                 self._session.query(Chunk)
-                .filter(Chunk.doc_id == doc_id, Chunk.deleted == False)  # noqa: E712
+                .filter(
+                    Chunk.doc_id == doc_id,
+                    Chunk.deleted == False,  # noqa: E712
+                    Chunk.chunk_role == "parent",
+                )
                 .order_by(Chunk.chunk_index)
                 .all()
             )
+            if not chunks:
+                chunks = (
+                    self._session.query(Chunk)
+                    .filter(
+                        Chunk.doc_id == doc_id,
+                        Chunk.deleted == False,  # noqa: E712
+                        Chunk.chunk_role == "child",
+                    )
+                    .order_by(Chunk.chunk_index)
+                    .all()
+                )
             results.append(
                 {
                     "doc_id": doc.doc_id,

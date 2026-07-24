@@ -1,4 +1,9 @@
-"""Aggregate collaboration_edges from document_participants."""
+"""Aggregate collaboration_edges from document_participants.
+
+rebuild_edges fully recomputes workspace co_participant weights. Callers enqueue
+aggregate_collaboration_edges; the job queue debounces that job type so ingest
+bursts coalesce into one delayed rebuild.
+"""
 
 from __future__ import annotations
 

@@ -46,6 +46,7 @@ class GraphRepository:
         updated_to: datetime | None = None,
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
+        about_person_ids: list[str] | None = None,
     ) -> list[dict]:
         """Keyword candidates filtered by current evidence ACL in SQL.
         """
@@ -80,6 +81,14 @@ class GraphRepository:
                               WHERE dp.doc_id = d.doc_id
                                 AND dp.person_id = ANY(CAST(:author_person_ids AS text[]))
                                 AND dp.role = 'author'
+                          )
+                      )
+                      AND (
+                          CAST(:about_person_ids AS text[]) IS NULL
+                          OR EXISTS (
+                              SELECT 1 FROM document_participants dp
+                              WHERE dp.doc_id = d.doc_id
+                                AND dp.person_id = ANY(CAST(:about_person_ids AS text[]))
                           )
                       )
                       AND (
@@ -186,6 +195,7 @@ class GraphRepository:
                 "source_type": source_type,
                 "author_patterns": author_patterns,
                 "author_person_ids": author_person_ids,
+                "about_person_ids": about_person_ids,
                 "date_from": date_from,
                 "date_to": date_to,
                 "updated_from": updated_from,
@@ -530,12 +540,22 @@ class GraphRepository:
         allowed = {row.doc_id for row in rows}
         return [doc_id for doc_id in evidence_doc_ids if doc_id in allowed]
 
-    def remove_document_evidence(self, doc_id: str) -> None:
+    def remove_extraction_evidence(self, doc_id: str) -> None:
+        """Retract LLM-extraction facts for a doc; keep structured_field ground truth."""
+        self.remove_document_evidence(doc_id, created_by_prefixes=("extraction",))
+
+    def remove_document_evidence(
+        self,
+        doc_id: str,
+        *,
+        created_by_prefixes: tuple[str, ...] | None = None,
+    ) -> None:
         """Retract claims/relationships and strip entity evidence for a deleted doc.
 
-        Applies to every creator (extraction, structured_field*, registry), not
-        only LLM extraction. A delete/tombstone must clear all graph evidence
-        keyed to this doc_id.
+        When created_by_prefixes is set, only facts whose created_by starts with one
+        of those prefixes are retracted (used to clear LLM extraction without wiping
+        structured_field ground truth). When None, every creator is cleared so a
+        delete/tombstone removes all graph evidence keyed to this doc_id.
         """
         relationships = (
             self._session.query(Relationship)
@@ -547,6 +567,11 @@ class GraphRepository:
             .all()
         )
         for relationship in relationships:
+            if created_by_prefixes is not None and not any(
+                (relationship.created_by or "").startswith(prefix)
+                for prefix in created_by_prefixes
+            ):
+                continue
             remaining = [evidence for evidence in relationship.evidence_doc_ids if evidence != doc_id]
             relationship.evidence_doc_ids = remaining
             relationship.evidence_quotes = [
@@ -570,6 +595,10 @@ class GraphRepository:
             .all()
         )
         for claim in claims:
+            if created_by_prefixes is not None and not any(
+                (claim.created_by or "").startswith(prefix) for prefix in created_by_prefixes
+            ):
+                continue
             remaining = [evidence for evidence in claim.evidence_doc_ids if evidence != doc_id]
             claim.evidence_doc_ids = remaining
             claim.evidence_quotes = [

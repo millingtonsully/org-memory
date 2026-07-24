@@ -48,6 +48,7 @@ def handle_embed_chunks(session: Session, payload: dict, embedder: Embedder, hea
         session.query(Chunk)
         .filter(
             Chunk.doc_id == doc_id,
+            Chunk.chunk_role == "child",
             Chunk.embedding.is_(None),
             Chunk.deleted == False,  # noqa: E712
         )

@@ -81,6 +81,11 @@ class Chunk(Base):
     doc_id: Mapped[str] = mapped_column(String, ForeignKey("documents.doc_id"), nullable=False)
     workspace_id: Mapped[str] = mapped_column(String, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    # parent = section returned to agents; child = embedded search unit
+    chunk_role: Mapped[str] = mapped_column(String, nullable=False, default="child")
+    parent_chunk_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("chunks.chunk_id"), nullable=True
+    )
 
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -331,7 +336,7 @@ class DocumentParticipant(Base):
 
 
 class ExtractionWindow(Base):
-    """Durable parsed LLM output so retries do not pay for completed windows."""
+    """Durable parsed LLM output and applied flag so retries skip finished windows."""
 
     __tablename__ = "extraction_windows"
 
@@ -341,6 +346,7 @@ class ExtractionWindow(Base):
     window_hash: Mapped[str] = mapped_column(String, nullable=False)
     parsed_output: Mapped[dict] = mapped_column(JSONB, nullable=False)
     tokens: Mapped[int] = mapped_column(Integer, default=0)
+    applied: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

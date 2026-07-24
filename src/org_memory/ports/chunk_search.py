@@ -15,8 +15,9 @@ from org_memory.domain.models import Principal
 
 
 class CandidateHit(dict):
-    """Keys: chunk_id, doc_id, source_type, title, text, author_display_name,
-    event_time, deep_link, rank."""
+    """Keys: chunk_id, doc_id, source_type, title, text, parent_chunk_id,
+    author_display_name, event_time, deep_link, rank. text is parent section
+    text when parent_chunk_id is set."""
 
 
 class ChunkSearch(Protocol):
@@ -34,6 +35,7 @@ class ChunkSearch(Protocol):
         updated_to: datetime | None,
         doc_id: str | None,
         author_person_ids: list[str] | None = None,
+        about_person_ids: list[str] | None = None,
     ) -> list[CandidateHit]: ...
 
     def keyword_candidates(
@@ -49,4 +51,5 @@ class ChunkSearch(Protocol):
         updated_to: datetime | None,
         doc_id: str | None,
         author_person_ids: list[str] | None = None,
+        about_person_ids: list[str] | None = None,
     ) -> list[CandidateHit]: ...

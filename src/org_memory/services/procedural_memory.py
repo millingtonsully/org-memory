@@ -197,26 +197,33 @@ class ProceduralMemoryService:
             )
             return {"memories": [], "audit_id": audit_id}
 
-        documents = [f"Objective: {memory.objective}\nSummary: {memory.summary}" for memory in candidates]
-        scores, rerank_tokens = self._reranker.rerank(query, documents)
-        with session_scope() as spend_session:
-            SpendRepository(spend_session).record(
-                "procedural_rerank",
-                "rerank",
-                self._reranker.model_name,
-                rerank_tokens,
-            )
-        ordered = sorted(
-            zip(candidates, scores, strict=True),
-            key=lambda item: item[1],
-            reverse=True,
-        )[:limit]
+        if len(candidates) <= limit:
+            ordered = list(zip(candidates[:limit], range(len(candidates[:limit]), 0, -1), strict=True))
+            did_rerank = False
+        else:
+            documents = [
+                f"Objective: {memory.objective}\nSummary: {memory.summary}" for memory in candidates
+            ]
+            scores, rerank_tokens = self._reranker.rerank(query, documents)
+            with session_scope() as spend_session:
+                SpendRepository(spend_session).record(
+                    "procedural_rerank",
+                    "rerank",
+                    self._reranker.model_name,
+                    rerank_tokens,
+                )
+            ordered = sorted(
+                zip(candidates, scores, strict=True),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:limit]
+            did_rerank = True
         memory_ids = [memory.memory_id for memory, _ in ordered]
         audit_id = self._audit.record_retrieval(
             principal,
             "search_procedural_memory",
             query,
-            {"limit": limit, "agent_id": agent_id},
+            {"limit": limit, "agent_id": agent_id, "reranked": did_rerank},
             [],
             memory_ids=memory_ids,
         )

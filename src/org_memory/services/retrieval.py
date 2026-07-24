@@ -1,8 +1,9 @@
 """Hybrid search for search_knowledge_base and worldbuilder_kb.
 
 Embed the query, fetch viewer-scoped vector and keyword candidates, fuse with
-RRF, apply recency decay, then cross-encoder rerank. Final order is rerank
-scores only. Every search writes an audit row.
+RRF, apply recency decay, then cross-encoder rerank when the shortlist is larger
+than the final limit. Final order is rerank scores when reranked, otherwise
+decayed RRF. Every search writes an audit row.
 """
 
 from __future__ import annotations
@@ -72,6 +73,7 @@ class RetrievalService:
         source_type: str | None = None,
         author: str | None = None,
         author_canonical_entity_id: str | None = None,
+        about_person_ids: list[str] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         updated_from: datetime | None = None,
@@ -136,6 +138,7 @@ class RetrievalService:
                 updated_to=updated_to,
                 doc_id=doc_id,
                 author_person_ids=author_person_ids,
+                about_person_ids=about_person_ids,
             )
         keyword_hits: list = []
         if use_keyword:
@@ -151,6 +154,7 @@ class RetrievalService:
                 updated_to=updated_to,
                 doc_id=doc_id,
                 author_person_ids=author_person_ids,
+                about_person_ids=about_person_ids,
             )
         fact_hits: list = []
         if use_keyword:
@@ -166,6 +170,7 @@ class RetrievalService:
                 updated_to=updated_to,
                 doc_id=doc_id,
                 author_person_ids=author_person_ids,
+                about_person_ids=about_person_ids,
             )
 
         by_id: dict[str, dict] = {}
@@ -211,33 +216,50 @@ class RetrievalService:
                 decayed[item_id] = score
 
         shortlist_ids = sorted(decayed, key=lambda iid: decayed[iid], reverse=True)[:candidate_pool]
-        documents = [
-            (
-                by_id[item_id.removeprefix("chunk:")]["text"]
-                if item_id.startswith("chunk:")
-                else facts_by_id[item_id.removeprefix("fact:")]["text"]
-            )
-            for item_id in shortlist_ids
-        ]
-        rerank_scores, rerank_tokens = self._reranker.rerank(query, documents)
-        with session_scope() as spend_session:
-            SpendRepository(spend_session).record(
-                "rerank", "rerank", self._reranker.model_name, rerank_tokens
-            )
+        if len(shortlist_ids) <= limit:
+            final_ids = shortlist_ids[:limit]
+            score_by_id = {item_id: decayed[item_id] for item_id in final_ids}
+            did_rerank = False
+        else:
+            documents = [
+                (
+                    by_id[item_id.removeprefix("chunk:")]["text"]
+                    if item_id.startswith("chunk:")
+                    else facts_by_id[item_id.removeprefix("fact:")]["text"]
+                )
+                for item_id in shortlist_ids
+            ]
+            rerank_scores, rerank_tokens = self._reranker.rerank(query, documents)
+            with session_scope() as spend_session:
+                SpendRepository(spend_session).record(
+                    "rerank", "rerank", self._reranker.model_name, rerank_tokens
+                )
+            score_by_id = dict(zip(shortlist_ids, rerank_scores, strict=True))
+            final_ids = [
+                item_id
+                for item_id, _ in sorted(
+                    score_by_id.items(), key=lambda item: item[1], reverse=True
+                )[:limit]
+            ]
+            did_rerank = True
 
-        rerank_by_id = dict(zip(shortlist_ids, rerank_scores, strict=True))
-        final_ids = [
-            item_id
-            for item_id, _ in sorted(
-                rerank_by_id.items(), key=lambda item: item[1], reverse=True
-            )[:limit]
-        ]
         final_chunk_ids = [
             item_id.removeprefix("chunk:") for item_id in final_ids if item_id.startswith("chunk:")
         ]
         final_fact_ids = [
             item_id.removeprefix("fact:") for item_id in final_ids if item_id.startswith("fact:")
         ]
+
+        # One passage per parent section when multiple children from the same parent hit.
+        seen_parents: set[str] = set()
+        deduped_chunk_ids: list[str] = []
+        for cid in final_chunk_ids:
+            parent_key = by_id[cid].get("parent_chunk_id") or cid
+            if parent_key in seen_parents:
+                continue
+            seen_parents.add(parent_key)
+            deduped_chunk_ids.append(cid)
+        final_chunk_ids = deduped_chunk_ids
 
         passages = [
             Passage(
@@ -249,12 +271,12 @@ class RetrievalService:
                 author_display_name=by_id[cid]["author_display_name"],
                 event_time=by_id[cid]["event_time"],
                 deep_link=by_id[cid]["deep_link"],
-                score=rerank_by_id[f"chunk:{cid}"],
+                score=score_by_id[f"chunk:{cid}"],
                 rank_debug={
                     "vector_rank": vector_ranks.get(cid),
                     "keyword_rank": keyword_ranks.get(cid),
                     "rrf_decayed": decayed[f"chunk:{cid}"],
-                    "rerank": rerank_by_id[f"chunk:{cid}"],
+                    "rerank": score_by_id[f"chunk:{cid}"] if did_rerank else None,
                 },
             )
             for cid in final_chunk_ids
@@ -266,11 +288,11 @@ class RetrievalService:
                 text=facts_by_id[fact_id]["text"],
                 confidence=facts_by_id[fact_id]["confidence"],
                 evidence_doc_ids=facts_by_id[fact_id]["evidence_doc_ids"],
-                score=rerank_by_id[f"fact:{fact_id}"],
+                score=score_by_id[f"fact:{fact_id}"],
                 rank_debug={
                     "keyword": facts_by_id[fact_id]["keyword_score"],
                     "rrf": decayed.get(f"fact:{fact_id}"),
-                    "rerank": rerank_by_id[f"fact:{fact_id}"],
+                    "rerank": score_by_id[f"fact:{fact_id}"] if did_rerank else None,
                 },
             )
             for fact_id in final_fact_ids
@@ -284,6 +306,7 @@ class RetrievalService:
                 "limit": limit,
                 "source_type": source_type,
                 "author": author,
+                "about_person_ids": about_person_ids,
                 "half_life_days": half_life_days,
                 "min_decay": min_decay,
                 "mode": mode,
@@ -297,6 +320,6 @@ class RetrievalService:
             passages=passages,
             facts=facts,
             total_candidates=len(by_id) + len(facts_by_id),
-            reranked=True,
+            reranked=did_rerank,
             audit_id=audit_id,
         )

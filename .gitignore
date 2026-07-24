@@ -21,6 +21,7 @@ htmlcov/
 # Editors
 .idea/
 .vscode/
+.cursor/
 
 # Local container scaffolding (not used; do not re-add)
 Dockerfile

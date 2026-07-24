@@ -32,6 +32,7 @@ class JobRepository:
             workspace_id=get_settings().workspace_id,
             job_type=job_type,
             payload=payload,
+            run_after=self._run_after_for(job_type),
         )
         try:
             with self._session.begin_nested():
@@ -44,9 +45,16 @@ class JobRepository:
                 raise
             return self._refresh_open_job(raced, payload)
 
+    def _run_after_for(self, job_type: str):
+        now = utcnow()
+        if job_type == JobType.aggregate_collaboration_edges.value:
+            delay = get_settings().collaboration_rebuild_debounce_seconds
+            return now + timedelta(seconds=delay)
+        return now
+
     def _refresh_open_job(self, job: Job, payload: dict) -> str:
         job.payload = payload
-        job.run_after = utcnow()
+        job.run_after = self._run_after_for(job.job_type)
         job.updated_at = utcnow()
         if job.status == "running" and (job.locked_until is None or job.locked_until < utcnow()):
             job.status = "pending"

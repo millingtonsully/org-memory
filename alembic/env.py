@@ -1,7 +1,8 @@
 """Alembic environment
 
-Alembic runs DB migrations. This file loads DATABASE_URL
-from the environment and applies files under alembic/versions/.
+Loads DATABASE_URL and applies the single schema revision under
+alembic/versions/0001_initial_schema.py. This project does not keep a
+multi-revision migration chain.
 """
 
 from __future__ import annotations

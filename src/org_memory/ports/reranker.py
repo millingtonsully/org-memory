@@ -1,6 +1,7 @@
 """Interface for scoring how well each document matches a query.
 
-Reranking always runs for agent search, and always via a hosted API.
+Reranking runs for agent search when the shortlist is larger than the final
+limit, always via a hosted API (no local fallback scorer).
 """
 
 from __future__ import annotations

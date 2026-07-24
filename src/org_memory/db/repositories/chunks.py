@@ -1,4 +1,4 @@
-"""SQL repositories package modules.
+"""Chunk search via pgvector and Postgres FTS.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from sqlalchemy import text as sql
 from sqlalchemy.orm import Session
 
 from org_memory.db.repositories._common import (
+    _FROM_CHUNKS,
     _SELECT_COLUMNS,
     _common_filters_sql,
     _common_params,
@@ -39,12 +40,12 @@ class ChunkSearchRepository:
         updated_to: datetime | None = None,
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
+        about_person_ids: list[str] | None = None,
     ) -> list[CandidateHit]:
         query = sql(f"""
             SELECT {_SELECT_COLUMNS}
-            FROM chunks c
+            {_FROM_CHUNKS}
             WHERE {_common_filters_sql()}
-              -- Active embedding model only
               AND c.embedding IS NOT NULL
               AND c.embedding_model = :embedding_model
             ORDER BY c.embedding <=> CAST(:query_embedding AS vector)
@@ -60,11 +61,11 @@ class ChunkSearchRepository:
             updated_to,
             doc_id,
             author_person_ids,
+            about_person_ids,
         )
         params.update(
             {
                 "embedding_model": embedding_model,
-                # pgvector accepts JSON array literals for CAST(... AS vector)
                 "query_embedding": json.dumps(query_embedding),
                 "limit": limit,
             }
@@ -85,14 +86,13 @@ class ChunkSearchRepository:
         updated_to: datetime | None = None,
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
+        about_person_ids: list[str] | None = None,
     ) -> list[CandidateHit]:
-        """Lexical candidate channel for hybrid RRF.
-        """
-        # websearch_to_tsquery parses user queries safely
+        """Lexical candidate channel for hybrid RRF."""
         query = sql(f"""
             SELECT {_SELECT_COLUMNS},
                    ts_rank(c.text_search, websearch_to_tsquery('english', :query_text)) AS kw_rank
-            FROM chunks c
+            {_FROM_CHUNKS}
             WHERE {_common_filters_sql()}
               AND c.text_search @@ websearch_to_tsquery('english', :query_text)
             ORDER BY kw_rank DESC
@@ -108,9 +108,8 @@ class ChunkSearchRepository:
             updated_to,
             doc_id,
             author_person_ids,
+            about_person_ids,
         )
         params.update({"query_text": query_text, "limit": limit})
         rows = self._session.execute(query, params).fetchall()
         return [_row_to_hit(row, rank) for rank, row in enumerate(rows, start=1)]
-
-

@@ -116,6 +116,11 @@ class DocumentRepository:
 
     def replace_chunks(self, doc_id: str, chunks: list[Chunk]) -> None:
         """Replace live chunks for a document. History is in blobs and document_versions."""
+        # Clear child→parent links first so a bulk delete does not trip the self-FK.
+        self._session.execute(
+            sql("UPDATE chunks SET parent_chunk_id = NULL WHERE doc_id = :doc_id"),
+            {"doc_id": doc_id},
+        )
         self._session.execute(sql("DELETE FROM chunks WHERE doc_id = :doc_id"), {"doc_id": doc_id})
         for chunk in chunks:
             self._session.add(chunk)
