@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime, time
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -140,10 +140,16 @@ class SearchKnowledgeBaseRequest(BaseModel):
 
 
 class WorldbuilderKbRequest(BaseModel):
-    """worldbuilder_kb arguments."""
+    """worldbuilder_kb arguments.
+
+    `about` scopes to content mentioning a person (participant/about).
+    `author` / `author_canonical_entity_id` filter to content written by a person.
+    `query` is the natural-language search text. When only `about` is set, the
+    about name is also used as the retrieval query.
+    """
 
     about: str | None = Field(default=None, min_length=1)
-    # Alias kept for older callers. Preferred field is `about`.
+    about_category: Literal["person", "team", "project", "glossary"] | None = None
     query: str | None = Field(default=None, min_length=1)
     author: str | None = None
     author_canonical_entity_id: str | None = None
@@ -156,21 +162,37 @@ class WorldbuilderKbRequest(BaseModel):
         description="Opaque connector/system id (free string).",
     )
     mode: RetrievalMode = RetrievalMode.hybrid
-    limit: int = Field(default=10, ge=1, le=25)
+    limit: int = Field(default=10, ge=1, le=50)
+    half_life_days: float = Field(default=90.0, ge=1, le=365)
+    min_decay: float = Field(default=0.3, ge=0, le=1)
+    date_from: date | None = None
+    date_to: date | None = None
+
+    @field_validator("date_from", "date_to", mode="before")
+    @classmethod
+    def _coerce_kb_date(cls, value: Any) -> Any:
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        return value
 
     @model_validator(mode="after")
     def _require_about_or_query(self) -> WorldbuilderKbRequest:
         if not (self.about or self.query):
-            raise ValueError("Provide `about` (preferred) or `query`.")
+            raise ValueError("Provide `about` and/or `query`.")
         return self
 
     def resolved_query(self) -> str:
-        return (self.about or self.query or "").strip()
+        if self.query and self.query.strip():
+            return self.query.strip()
+        return (self.about or "").strip()
 
 
 class WorldbuilderLookupAction(str, Enum):
     profile = "profile"
     read_source = "read_source"
+    list = "list"
 
 
 class WorldbuilderLookupRequest(BaseModel):
@@ -178,15 +200,26 @@ class WorldbuilderLookupRequest(BaseModel):
 
     action: WorldbuilderLookupAction | None = None
     name: str | None = None
+    category: Literal["person", "team", "project", "glossary"] | None = None
     query: str | None = None
+    half_life_days: float = Field(default=90.0, ge=1, le=365)
+    min_decay: float = Field(default=0.3, ge=0, le=1)
+    limit: int = Field(default=50, ge=1, le=100)
     source_document_ids: list[str] | None = None
     source_record_ids: list[str] | None = None
-    # Legacy alias used by existing callers.
+    # Legacy alias used by existing callers (document ids).
     read_source: list[str] | None = None
 
-    def document_ids(self) -> list[str]:
-        ids = self.source_document_ids or self.source_record_ids or self.read_source or []
+    def document_ids_only(self) -> list[str]:
+        ids = list(self.source_document_ids or []) + list(self.read_source or [])
         return [doc_id for doc_id in ids if doc_id.strip()]
+
+    def record_ids_only(self) -> list[str]:
+        return [rid for rid in (self.source_record_ids or []) if rid.strip()]
+
+    def document_ids(self) -> list[str]:
+        """Legacy combined list (documents + records) for action inference."""
+        return self.document_ids_only() + self.record_ids_only()
 
     def resolved_action(self) -> WorldbuilderLookupAction:
         if self.action is not None:
@@ -196,5 +229,7 @@ class WorldbuilderLookupRequest(BaseModel):
         if self.name and not self.document_ids():
             return WorldbuilderLookupAction.profile
         raise ValueError(
-            "Provide action=profile with name, or action=read_source with source_document_ids."
+            "Provide action=profile with name, action=list with category, "
+            "or action=read_source with source_document_ids and/or source_record_ids."
         )
+

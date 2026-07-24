@@ -23,6 +23,7 @@ from org_memory.domain.models import FactPassage, Passage, Principal, SearchResp
 from org_memory.ports.embedder import Embedder
 from org_memory.ports.reranker import Reranker
 from org_memory.services.ranking import recency_multiplier, rrf_fuse
+from org_memory.taxonomy_registry import get_taxonomy_registry
 
 
 class RetrievalService:
@@ -79,6 +80,7 @@ class RetrievalService:
         author: str | None = None,
         author_canonical_entity_id: str | None = None,
         about_person_ids: list[str] | None = None,
+        about_doc_ids: list[str] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         updated_from: datetime | None = None,
@@ -145,6 +147,7 @@ class RetrievalService:
                 doc_id=doc_id,
                 author_person_ids=author_person_ids,
                 about_person_ids=about_person_ids,
+                about_doc_ids=about_doc_ids,
             )
         keyword_hits: list = []
         if use_keyword:
@@ -162,6 +165,7 @@ class RetrievalService:
                 doc_id=doc_id,
                 author_person_ids=author_person_ids,
                 about_person_ids=about_person_ids,
+                about_doc_ids=about_doc_ids,
             )
         fact_hits: list = []
         if use_keyword:
@@ -179,6 +183,7 @@ class RetrievalService:
                 doc_id=doc_id,
                 author_person_ids=author_person_ids,
                 about_person_ids=about_person_ids,
+                about_doc_ids=about_doc_ids,
             )
 
         by_id: dict[str, dict] = {}
@@ -212,6 +217,7 @@ class RetrievalService:
         fused = rrf_fuse(chunk_fused_lists, k=settings.rrf_k)
 
         decayed: dict[str, float] = {}
+        registry = get_taxonomy_registry()
         for item_id, score in fused.items():
             if item_id.startswith("chunk:"):
                 cid = item_id.removeprefix("chunk:")
@@ -221,7 +227,23 @@ class RetrievalService:
                     min_decay=min_decay,
                 )
             else:
-                decayed[item_id] = score
+                fid = item_id.removeprefix("fact:")
+                fact = facts_by_id[fid]
+                half = settings.fact_freshness_half_life_days
+                pred = fact.get("predicate")
+                if pred and registry.is_known_predicate(pred):
+                    override = registry.predicates[pred].freshness_half_life_days
+                    if override is not None:
+                        half = override
+                as_of_time = fact.get("valid_from") or fact.get("recorded_at")
+                if as_of_time is None:
+                    decayed[item_id] = score * settings.fact_freshness_min_decay
+                else:
+                    decayed[item_id] = score * recency_multiplier(
+                        as_of_time,
+                        half_life_days=half,
+                        min_decay=settings.fact_freshness_min_decay,
+                    )
 
         shortlist_ids = sorted(decayed, key=lambda iid: decayed[iid], reverse=True)[:candidate_pool]
         if len(shortlist_ids) <= limit:

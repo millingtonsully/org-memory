@@ -42,16 +42,16 @@ Return ONLY a JSON object with this exact shape (no markdown fences):
   "document_context": "compact named subjects, aliases, and referents for later segments",
   "entities": [
     {{
-      "type": "free-form lowercase kind",
+      "type": "person|team|project|glossary",
       "name": "...",
       "description": "...",
-      "evidence_quote": "..."
+      "evidence_quote": "verbatim supporting text from this segment"
     }}
   ],
   "relationships": [
     {{
-      "from": {{"type": "person" | "entity", "name": "..."}},
-      "to": {{"type": "person" | "entity", "name": "..."}},
+      "from": {{"type": "person|team|project|glossary", "name": "..."}},
+      "to": {{"type": "person|team|project|glossary", "name": "..."}},
       "relationship_type": "registry relationship_type key",
       "evidence_quote": "verbatim supporting text from this segment",
       "confidence": 0.0-1.0
@@ -59,7 +59,7 @@ Return ONLY a JSON object with this exact shape (no markdown fences):
   ],
   "claims": [
     {{
-      "subject": {{"type": "person" | "entity", "name": "..."}},
+      "subject": {{"type": "person|team|project|glossary", "name": "..."}},
       "predicate": "registry predicate key",
       "object": "...",
       "evidence_quote": "verbatim supporting text from this segment",
@@ -72,6 +72,21 @@ Rules:
   an organizational relationship merely from co-occurrence.
 - evidence_quote is mandatory and must be copied verbatim from this segment.
 {schema_block}
+- Entity type guidance:
+  - person: named humans (employees, contractors). Prefer claims/relationships over
+    inventing duplicate person entities when the text only mentions a person.
+  - team: named org groups/squads/departments (e.g. "Platform", "Clinical Ops").
+  - project: named initiatives/workstreams with a clear label in the text.
+  - glossary: internal acronyms/terms whose meaning is explained or used as jargon
+    (e.g. "CarePod", "ICR"). For every glossary entity, ALSO emit a claim with
+    predicate "definition" whose object is the org-specific meaning, with the same
+    evidence_quote when possible.
+- Relationship guidance:
+  - member_of: person → team when membership is explicit.
+  - reports_to: person → person when management is explicit.
+  - uses_term: person|project → glossary when they clearly use that term.
+- Subject/object `type` must be one of the allowed entity types (or person), never
+  the opaque label "entity".
 - The supplied prior document context is for resolving references only. It is
   not evidence and must never be quoted or emitted as a fact by itself.
 - confidence reflects how explicitly the text supports the fact.
@@ -289,11 +304,16 @@ class ExtractionService:
         """Write one window's parsed facts to the graph, updating summary counts."""
         activation_confidence = get_settings().fact_activation_confidence
         registry = get_taxonomy_registry()
+        glossary_seeded: list[tuple[str, str, str]] = []
 
         for item in parsed.get("entities", []):
             entity_type = str(item.get("type", "")).strip().lower()
             name = str(item.get("name", "")).strip()
             if not entity_type or not name:
+                continue
+            if entity_type == "person":
+                # People are bound via identity resolution, not free entity upsert.
+                summary["skipped_mentions"] += 1
                 continue
             if not registry.is_known_entity_type(entity_type):
                 summary["dropped_untyped"] += 1
@@ -301,13 +321,17 @@ class ExtractionService:
             if not _quote_is_supported(item.get("evidence_quote"), source_window):
                 summary["dropped_unverifiable"] += 1
                 continue
-            self._graph.upsert_entity(
+            description = str(item.get("description", "") or "").strip()
+            entity = self._graph.upsert_entity(
                 entity_type,
                 name,
-                description=item.get("description", ""),
+                description=description,
                 evidence_doc_id=doc.doc_id,
             )
             summary["entities"] += 1
+            if entity_type == "glossary":
+                quote = str(item["evidence_quote"])
+                glossary_seeded.append((entity.entity_id, description, quote))
 
         for item in parsed.get("relationships", []):
             if not _quote_is_supported(item.get("evidence_quote"), source_window):
@@ -387,6 +411,10 @@ class ExtractionService:
                 summary["claims"] += 1
                 summary["proposed_facts"] += 1
                 continue
+            pred_def = registry.predicates[predicate]
+            if subject[0] not in pred_def.subject_types:
+                summary["dropped_untyped"] += 1
+                continue
             confidence = _parse_confidence(item.get("confidence"))
             status = status_for_confidence(confidence, activation_confidence).value
             evidence_quote = str(item["evidence_quote"])
@@ -414,12 +442,75 @@ class ExtractionService:
             summary["claims"] += 1
             summary[f"{status}_facts"] += 1
 
+        # Glossary entities without an explicit definition claim still get one when
+        # the extractor provided a description grounded in the same evidence quote.
+        self._seed_glossary_definitions(
+            doc=doc,
+            seeded=glossary_seeded,
+            parsed_claims=parsed.get("claims", []),
+            summary=summary,
+            activation_confidence=activation_confidence,
+        )
+
+    def _seed_glossary_definitions(
+        self,
+        *,
+        doc: Document,
+        seeded: list[tuple[str, str, str]],
+        parsed_claims: list,
+        summary: dict,
+        activation_confidence: float,
+    ) -> None:
+        if not seeded:
+            return
+        claimed_subjects: set[str] = set()
+        for item in parsed_claims:
+            if str(item.get("predicate", "")).strip().lower() != "definition":
+                continue
+            sub = item.get("subject") or {}
+            name = str(sub.get("name", "")).strip()
+            if name:
+                claimed_subjects.add(self._graph.normalize_name(name))
+        for entity_id, description, quote in seeded:
+            if not description or len(description) < 8:
+                continue
+            entity = self._graph.get_entity(entity_id)
+            if entity is None:
+                continue
+            if self._graph.normalize_name(entity.name) in claimed_subjects:
+                continue
+            confidence = min(0.85, activation_confidence + 0.05)
+            status = status_for_confidence(confidence, activation_confidence).value
+            stored = self._graph.add_claim(
+                Claim(
+                    workspace_id=doc.workspace_id,
+                    subject_type="glossary",
+                    subject_id=entity_id,
+                    predicate="definition",
+                    object_text=description,
+                    confidence=confidence,
+                    status=status,
+                    evidence_doc_ids=[doc.doc_id],
+                    evidence_quotes=[{"doc_id": doc.doc_id, "quote": quote}],
+                    origin_subject_id=entity_id,
+                    created_by="extraction:glossary_seed",
+                    decided_by=("automatic:confidence_gate" if status == "active" else ""),
+                    valid_from=doc.event_time,
+                )
+            )
+            if stored.status == FactStatus.active.value:
+                self.active_claim_slots.add(("glossary", entity_id, "definition"))
+            summary["claims"] += 1
+            summary[f"{status}_facts"] += 1
+
     def _resolve_ref(self, ref: dict, summary: dict) -> tuple[str, str] | None:
         """Map an extracted type and name to a graph node id."""
-        ref_type = ref.get("type", "")
-        name = ref.get("name", "").strip()
+        ref_type = str(ref.get("type", "") or "").strip().lower()
+        name = str(ref.get("name", "") or "").strip()
         if not name:
             return None
+        registry = get_taxonomy_registry()
+
         if ref_type == "person":
             person_matches = self._persons.search_by_name(name, limit=2)
             normalized = self._graph.normalize_name(name)
@@ -438,19 +529,32 @@ class ExtractionService:
             # extraction mentions from semantic similarity alone.
             summary["skipped_mentions"] += 1
             return None
-        if ref_type == "entity":
-            entity_matches = self._graph.search_entities(name, limit=2)
-            exact_entities = [
-                entity
-                for entity in entity_matches
-                if entity.normalized_name == self._graph.normalize_name(name)
-            ]
-            if len(exact_entities) != 1:
-                summary["skipped_mentions"] += 1
-                return None
-            entity = exact_entities[0]
-            return (entity.entity_type, entity.entity_id)
-        return None
+
+        # Prefer explicit ontology types (team/project/glossary). Legacy "entity"
+        # remains accepted for older cached windows.
+        entity_type: str | None
+        if ref_type in {"", "entity"}:
+            entity_type = None
+        elif registry.is_known_entity_type(ref_type) and ref_type != "person":
+            entity_type = ref_type
+        else:
+            summary["dropped_untyped"] += 1
+            return None
+
+        entity_matches = self._graph.search_entities(
+            name, limit=5, entity_type=entity_type
+        )
+        exact_entities = [
+            entity
+            for entity in entity_matches
+            if entity.normalized_name == self._graph.normalize_name(name)
+            and (entity_type is None or entity.entity_type == entity_type)
+        ]
+        if len(exact_entities) != 1:
+            summary["skipped_mentions"] += 1
+            return None
+        entity = exact_entities[0]
+        return (entity.entity_type, entity.entity_id)
 
 
 def _normalize_evidence(value: str) -> str:

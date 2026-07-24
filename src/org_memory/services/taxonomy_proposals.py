@@ -1,4 +1,4 @@
-"""Generate taxonomy_proposals from active registry-bound claims."""
+"""Generate taxonomy_proposals (field-value write-backs) from active registry-bound claims."""
 
 from __future__ import annotations
 

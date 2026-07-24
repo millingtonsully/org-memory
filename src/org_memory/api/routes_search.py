@@ -1,12 +1,15 @@
-"""Agent retrieval tools: search_knowledge_base and worldbuilder_kb.
-
-"""
+"""Agent retrieval tools: search_knowledge_base and worldbuilder_kb."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from org_memory.api.deps import bind_principal, get_retrieval_service, require_api_key
+from org_memory.api.deps import (
+    bind_principal,
+    get_retrieval_service,
+    get_worldbuilder_service,
+    require_api_key,
+)
 from org_memory.api.tool_wire import (
     McpToolResponse,
     SearchKnowledgeBaseRequest,
@@ -15,8 +18,10 @@ from org_memory.api.tool_wire import (
     search_response_to_mcp,
     worldbuilder_envelope,
 )
+from org_memory.core.errors import NotFoundError
 from org_memory.domain.models import Principal
 from org_memory.services.retrieval import RetrievalService
+from org_memory.services.worldbuilder import WorldbuilderService
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
 
@@ -51,7 +56,29 @@ def worldbuilder_kb(
     body: WorldbuilderKbRequest,
     principal: Principal = Depends(bind_principal),
     retrieval: RetrievalService = Depends(get_retrieval_service),
+    worldbuilder: WorldbuilderService = Depends(get_worldbuilder_service),
 ) -> dict:
+    about_person_ids: list[str] | None = None
+    about_doc_ids: list[str] | None = None
+    if body.about:
+        try:
+            resolved = worldbuilder.resolve_about_subject(
+                principal, body.about, category=body.about_category
+            )
+        except NotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if resolved["kind"] == "ambiguous":
+            return worldbuilder_envelope(
+                status="ambiguous",
+                items=resolved["disambiguation"],
+                summary=resolved["detail"],
+                metadata={"about": body.about, "about_category": body.about_category},
+            )
+        if resolved["kind"] == "person":
+            about_person_ids = list(resolved["about_person_ids"])
+        else:
+            about_doc_ids = list(resolved["about_doc_ids"])
+
     result = retrieval.search(
         principal=principal,
         query=body.resolved_query(),
@@ -60,6 +87,12 @@ def worldbuilder_kb(
         source_system=body.source_system,
         author=body.author,
         author_canonical_entity_id=body.author_canonical_entity_id,
+        about_person_ids=about_person_ids,
+        about_doc_ids=about_doc_ids,
+        date_from=parse_yyyy_mm_dd(body.date_from),
+        date_to=parse_yyyy_mm_dd(body.date_to, end_of_day=True),
+        half_life_days=body.half_life_days,
+        min_decay=body.min_decay,
         mode=body.mode.value,
         tool_name="worldbuilder_kb",
     )
@@ -85,9 +118,16 @@ def worldbuilder_kb(
         summary=f"{len(items)} passages for {body.resolved_query()!r}",
         metadata={
             "mode": body.mode.value,
+            "about": body.about,
+            "about_category": body.about_category,
+            "about_person_ids": about_person_ids,
+            "about_doc_ids": about_doc_ids,
             "source_type": body.source_type,
             "source_system": body.source_system,
+            "author": body.author,
             "author_canonical_entity_id": body.author_canonical_entity_id,
+            "half_life_days": body.half_life_days,
+            "min_decay": body.min_decay,
             "audit_id": result.audit_id,
             "total_candidates": result.total_candidates,
             "reranked": result.reranked,

@@ -1,4 +1,8 @@
-"""Closed, versioned taxonomy schema for extraction, facts, and proposals."""
+"""Closed, versioned knowledge ontology for extraction, facts, and proposals.
+
+Loads JSON instances from TAXONOMY_REGISTRY_DIR validated against
+contracts/taxonomy_registry.schema.json.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ __all__ = [
 
 @lru_cache
 def get_taxonomy_registry() -> TaxonomyRegistry:
-    """Load registry once per process; invalid YAML fails at first call."""
+    """Load registry once per process; invalid JSON fails at first call."""
     from org_memory.core.settings import get_settings
 
     return load_taxonomy_registry(get_settings().taxonomy_registry_dir)

@@ -50,6 +50,7 @@ class GraphRepository:
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
+        about_doc_ids: list[str] | None = None,
     ) -> list[dict]:
         """Keyword candidates filtered by current evidence ACL in SQL.
         """
@@ -68,7 +69,10 @@ class GraphRepository:
                         c.claim_id AS fact_id,
                         'claim'::text AS fact_type,
                         c.predicate || ': ' || c.object_text AS fact_text,
+                        c.predicate AS predicate,
                         c.confidence,
+                        c.valid_from AS valid_from,
+                        c.recorded_at AS recorded_at,
                         evidence.doc_ids AS evidence_doc_ids,
                         c.evidence_quotes AS evidence_quotes,
                         ts_rank(
@@ -108,7 +112,10 @@ class GraphRepository:
                             r.relationship_type || ' ' ||
                             r.to_type || ':' || r.to_id
                         ) AS fact_text,
+                        r.relationship_type AS predicate,
                         r.confidence,
+                        r.valid_from AS valid_from,
+                        r.recorded_at AS recorded_at,
                         evidence.doc_ids AS evidence_doc_ids,
                         r.evidence_quotes AS evidence_quotes,
                         ts_rank(
@@ -156,6 +163,7 @@ class GraphRepository:
                 "author_patterns": author_patterns,
                 "author_person_ids": author_person_ids,
                 "about_person_ids": about_person_ids,
+                "about_doc_ids": about_doc_ids,
                 "date_from": date_from,
                 "date_to": date_to,
                 "updated_from": updated_from,
@@ -177,7 +185,10 @@ class GraphRepository:
                     "fact_id": row["fact_id"],
                     "fact_type": row["fact_type"],
                     "text": row["fact_text"],
+                    "predicate": row["predicate"],
                     "confidence": float(row["confidence"]),
+                    "valid_from": row["valid_from"],
+                    "recorded_at": row["recorded_at"],
                     "evidence_doc_ids": list(row["evidence_doc_ids"]),
                     "evidence_quotes": quotes,
                     "keyword_score": float(row["keyword_score"]),
@@ -233,19 +244,22 @@ class GraphRepository:
         self._session.flush()
         return entity
 
-    def search_entities(self, name: str, limit: int = 5) -> list[Entity]:
-        return (
-            self._session.query(Entity)
-            .filter(
-                Entity.workspace_id == self._ws,
-                Entity.name.ilike(f"%{name}%"),
-            )
-            .limit(limit)
-            .all()
+    def search_entities(self, name: str, limit: int = 5, *, entity_type: str | None = None) -> list[Entity]:
+        q = self._session.query(Entity).filter(
+            Entity.workspace_id == self._ws,
+            Entity.name.ilike(f"%{name}%"),
         )
+        if entity_type:
+            q = q.filter(Entity.entity_type == entity_type.strip().lower())
+        return q.limit(limit).all()
 
     def search_entities_for_viewer(
-        self, name: str, principal: Principal, limit: int = 5
+        self,
+        name: str,
+        principal: Principal,
+        limit: int = 5,
+        *,
+        entity_type: str | None = None,
     ) -> list[tuple[Entity, list[str]]]:
         """Return entities whose *entire* evidence set is visible to this viewer.
 
@@ -254,13 +268,44 @@ class GraphRepository:
         every supporting document. Empty evidence never surfaces.
         """
         visible: list[tuple[Entity, list[str]]] = []
-        for entity in self.search_entities(name, limit=limit * 3):
+        for entity in self.search_entities(name, limit=limit * 3, entity_type=entity_type):
             evidence = list(entity.evidence_doc_ids or [])
             if not evidence:
                 continue
             doc_ids = self.visible_evidence_doc_ids(evidence, principal)
             if len(doc_ids) == len(set(evidence)):
                 visible.append((entity, doc_ids))
+            if len(visible) >= limit:
+                break
+        return visible
+
+    def list_entities_for_viewer(
+        self,
+        principal: Principal,
+        *,
+        entity_type: str,
+        limit: int = 50,
+    ) -> list[tuple[Entity, list[str]]]:
+        """Browse visible entities of one type (bounded; ordered by name)."""
+        rows = (
+            self._session.query(Entity)
+            .filter(
+                Entity.workspace_id == self._ws,
+                Entity.entity_type == entity_type.strip().lower(),
+            )
+            .order_by(Entity.name.asc())
+            .limit(max(limit * 5, limit))
+            .all()
+        )
+        visible: list[tuple[Entity, list[str]]] = []
+        for entity in rows:
+            evidence = list(entity.evidence_doc_ids or [])
+            if not evidence:
+                continue
+            doc_ids = self.visible_evidence_doc_ids(evidence, principal)
+            if len(doc_ids) != len(set(evidence)):
+                continue
+            visible.append((entity, doc_ids))
             if len(visible) >= limit:
                 break
         return visible

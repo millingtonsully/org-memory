@@ -52,7 +52,7 @@ configure_logging()
 settings = get_settings()
 logger = structlog.get_logger(__name__)
 
-# Closed taxonomy schema — fail before serving if YAML is missing/invalid.
+# Closed taxonomy schema — fail before serving if JSON registry is missing/invalid.
 get_taxonomy_registry()
 
 if settings.embedding_dimensions != EMBEDDING_DIM:

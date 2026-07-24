@@ -1,4 +1,7 @@
-"""Deterministic query_facts: registry-backed claims, viewer-scoped, temporal as_of."""
+"""Deterministic query_facts: registry-backed claims, viewer-scoped, temporal as_of.
+
+Results are ordered by freshness-weighted confidence (stale active facts rank lower).
+"""
 
 from __future__ import annotations
 
@@ -9,8 +12,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from org_memory.api.deps import bind_principal, get_session, require_api_key
+from org_memory.core.settings import get_settings
 from org_memory.db.repositories import GraphRepository
 from org_memory.domain.models import Principal
+from org_memory.services.ranking import fact_freshness_score
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
@@ -19,6 +24,13 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 def _platform_binding(registry, predicate: str) -> dict | None:
     binding = registry.predicates[predicate].platform_binding
     return binding.model_dump() if binding is not None else None
+
+
+def _predicate_half_life(registry, predicate: str, default: float) -> float:
+    pred = registry.predicates.get(predicate)
+    if pred is None or pred.freshness_half_life_days is None:
+        return default
+    return float(pred.freshness_half_life_days)
 
 
 class QueryFactsRequest(BaseModel):
@@ -53,6 +65,7 @@ def query_facts(
     session: Session = Depends(get_session),
 ) -> dict:
     registry = get_taxonomy_registry()
+    settings = get_settings()
     if body.predicate is not None:
         predicate = body.predicate.strip().lower()
         if not registry.is_known_predicate(predicate):
@@ -78,7 +91,6 @@ def query_facts(
         believed_as_of=body.believed_as_of,
     )
     facts = []
-    truncated = False
     for claim, evidence_doc_ids in rows:
         if predicate is not None and claim.predicate != predicate:
             continue
@@ -91,6 +103,16 @@ def query_facts(
             for quote in (claim.evidence_quotes or [])
             if quote.get("doc_id") in set(evidence_doc_ids)
         ]
+        half = _predicate_half_life(
+            registry, claim.predicate, settings.fact_freshness_half_life_days
+        )
+        as_of_time = claim.valid_from or claim.recorded_at
+        freshness = fact_freshness_score(
+            confidence=claim.confidence,
+            as_of_time=as_of_time,
+            half_life_days=half,
+            min_decay=settings.fact_freshness_min_decay,
+        )
         facts.append(
             {
                 "fact_id": claim.claim_id,
@@ -99,6 +121,8 @@ def query_facts(
                 "predicate": claim.predicate,
                 "object": claim.object_text,
                 "confidence": claim.confidence,
+                "freshness_score": freshness,
+                "freshness_half_life_days": half,
                 "status": claim.status,
                 "valid_from": claim.valid_from.isoformat() if claim.valid_from else None,
                 "valid_to": claim.valid_to.isoformat() if claim.valid_to else None,
@@ -112,9 +136,13 @@ def query_facts(
                 "platform_binding": _platform_binding(registry, claim.predicate),
             }
         )
-        if len(facts) >= body.limit:
-            truncated = True
-            break
+
+    facts.sort(
+        key=lambda f: (float(f["freshness_score"]), float(f["confidence"]), f["fact_id"]),
+        reverse=True,
+    )
+    truncated = len(facts) > body.limit
+    facts = facts[: body.limit]
 
     return {
         "subject_type": body.subject_type.strip().lower(),

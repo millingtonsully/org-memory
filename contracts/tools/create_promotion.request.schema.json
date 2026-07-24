@@ -1,5 +1,5 @@
 {
-  "$comment": "POST /v1/promotions request body (agent promote → OM claim + host taxonomy proposal).",
+  "$comment": "POST /v1/promotions request body (agent promote → OM claim + host taxonomy proposal). host_entity_id may be omitted; OM fills it from identity:platform_user when unambiguous.",
   "type": "object",
   "required": [
     "om_canonical_id",

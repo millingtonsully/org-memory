@@ -1,4 +1,8 @@
-"""Typed taxonomy registry shapes (closed schema for extraction + proposals)."""
+"""Typed knowledge-ontology registry shapes (closed schema for extraction + proposals).
+
+Instances under config/taxonomy_registry/*.json are validated against
+contracts/taxonomy_registry.schema.json, then loaded into these models.
+"""
 
 from __future__ import annotations
 
@@ -35,6 +39,8 @@ class PredicateDef(BaseModel):
     mutually_exclusive: bool = False
     structured_field_keys: list[str] = Field(default_factory=list)
     platform_binding: PlatformBinding | None = None
+    # When null/absent, use FACT_FRESHNESS_HALF_LIFE_DAYS from settings.
+    freshness_half_life_days: float | None = Field(default=None, gt=0)
     description: str = ""
 
     @field_validator("key", "subject_types", mode="before")
@@ -65,8 +71,11 @@ class RelationshipTypeDef(BaseModel):
 
 
 class TaxonomyRegistryFile(BaseModel):
-    """One YAML file. Entity *types*, predicates, and relationship_types are closed.
-    Instance names stay free-form."""
+    """One knowledge-ontology JSON file.
+
+    Entity *types*, predicates, and relationship_types are closed.
+    Instance names stay free-form.
+    """
 
     version: int = Field(ge=1)
     entity_types: list[EntityTypeDef] = Field(default_factory=list)
@@ -92,7 +101,7 @@ class TaxonomyRegistryFile(BaseModel):
 
 
 class TaxonomyRegistry:
-    """In-memory index over one or more registry YAML files."""
+    """In-memory index over one or more knowledge-ontology JSON registry files."""
 
     def __init__(self, files: list[TaxonomyRegistryFile]):
         self._files = files

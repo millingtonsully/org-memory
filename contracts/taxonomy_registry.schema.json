@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://org-memory.local/contracts/taxonomy_registry.schema.json",
+  "title": "TaxonomyRegistryFile",
+  "description": "Closed knowledge-ontology instance loaded from config/taxonomy_registry/*.json. Entity type keys, predicates, and relationship types are closed; instance names stay free-form.",
+  "type": "object",
+  "required": ["version"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "entity_types": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["key"],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Closed entity type key (e.g. person, team, project, glossary)."
+          },
+          "description": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      }
+    },
+    "predicates": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["key", "subject_types"],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subject_types": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "value_type": {
+            "type": "string",
+            "enum": ["string", "number", "boolean", "datetime", "enum", "reference"],
+            "default": "string"
+          },
+          "mutually_exclusive": {
+            "type": "boolean",
+            "default": false
+          },
+          "structured_field_keys": {
+            "type": "array",
+            "default": [],
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Connector structured_field keys that map into this predicate (ingest ground truth)."
+          },
+          "platform_binding": {
+            "type": "object",
+            "required": ["taxonomy_key", "field_key"],
+            "additionalProperties": false,
+            "properties": {
+              "taxonomy_key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "field_key": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "description": "Host taxonomy field this predicate may propose updates for."
+          },
+          "freshness_half_life_days": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Claim freshness half-life in days for this predicate. If absent, FACT_FRESHNESS_HALF_LIFE_DAYS is used."
+          },
+          "description": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      }
+    },
+    "relationship_types": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["key", "from_types", "to_types"],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "from_types": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "to_types": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "mutually_exclusive": {
+            "type": "boolean",
+            "default": false
+          },
+          "description": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      }
+    }
+  }
+}

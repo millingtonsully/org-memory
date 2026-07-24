@@ -1,16 +1,57 @@
 {
-  "$comment": "worldbuilder_lookup arguments.",
+  "$comment": "POST /tools/worldbuilder_lookup request body.",
   "type": "object",
   "properties": {
-    "action": {"type": "string", "enum": ["profile", "read_source"]},
-    "name": {"type": "string"},
-    "query": {"type": "string"},
-    "source_document_ids": {"type": "array", "items": {"type": "string"}},
-    "source_record_ids": {"type": "array", "items": {"type": "string"}},
+    "action": {
+      "type": "string",
+      "enum": ["profile", "read_source", "list"]
+    },
+    "name": {
+      "type": "string",
+      "description": "Subject name for action=profile."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["person", "team", "project", "glossary"],
+      "description": "Required for action=list. Optional for profile (auto-search when omitted)."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 50,
+      "description": "Browse page size for action=list."
+    },
+    "query": {
+      "type": "string",
+      "description": "Optional natural-language focus that enriches profile evidence retrieval."
+    },
+    "half_life_days": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 365,
+      "default": 90
+    },
+    "min_decay": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.3
+    },
+    "source_document_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Document ids for action=read_source."
+    },
+    "source_record_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Claim or relationship ids for action=read_source."
+    },
     "read_source": {
       "type": "array",
-      "items": {"type": "string"},
-      "description": "Legacy alias for source_document_ids"
+      "items": { "type": "string" },
+      "description": "Legacy alias for source_document_ids."
     }
   },
   "additionalProperties": false

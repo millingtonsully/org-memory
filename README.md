@@ -17,20 +17,20 @@ The API accepts ChangeEnvelope JSON (the ingest contract for one content change)
 **Top-level packages under** `src/org_memory/`
 
 
-| Package              | Role                                                              |
-| -------------------- | ----------------------------------------------------------------- |
-| `api/`               | HTTP routes, auth dependencies, tool wire shapes                  |
-| `services/`          | Ingest, retrieval, extraction, worldbuilder, proposals, retention |
-| `db/`                | SQLAlchemy engine, ORM models, repositories with ACL in SQL       |
-| `domain/`            | Pure models, principals, fact lifecycle, job type names           |
-| `adapters/`          | HTTP embedder, reranker, synthesizer, Supabase Storage, S3        |
-| `ports/`             | Protocols for object store, embedder, reranker, chunk search      |
-| `workers/`           | Job poll loop and handlers                                        |
-| `core/`              | Settings, wiring, errors, metrics, logging                        |
-| `taxonomy_registry/` | Closed YAML schema for predicates and platform field bindings     |
+| Package              | Role                                                                |
+| -------------------- | ------------------------------------------------------------------- |
+| `api/`               | HTTP routes, auth dependencies, tool wire shapes                    |
+| `services/`          | Ingest, retrieval, extraction, worldbuilder, proposals, retention   |
+| `db/`                | SQLAlchemy engine, ORM models, repositories with ACL in SQL         |
+| `domain/`            | Pure models, principals, fact lifecycle, job type names             |
+| `adapters/`          | HTTP embedder, reranker, synthesizer, Supabase Storage, S3          |
+| `ports/`             | Protocols for object store, embedder, reranker, chunk search        |
+| `workers/`           | Job poll loop and handlers                                          |
+| `core/`              | Settings, wiring, errors, metrics, logging                          |
+| `taxonomy_registry/` | Closed JSON Schema knowledge ontology (types, predicates, bindings) |
 
 
-**Contracts** are under `contracts/`. The ChangeEnvelope JSON Schema is the ingest contract. Tool request schemas live under `contracts/tools/`.
+**Contracts** are under `contracts/`. The ChangeEnvelope JSON Schema is the ingest contract. The knowledge ontology meta-schema is `contracts/taxonomy_registry.schema.json`; live instances live under `config/taxonomy_registry/` (see `knowledge_ontology.json`). Tool request schemas live under `contracts/tools/`.
 
 **Database schema** lives in a single Alembic revision: `alembic/versions/0001_initial_schema.py`. On a new database, run `alembic upgrade head`. Schema changes are edited into that file in place; this project does not keep a chain of numbered migrations.
 
@@ -67,7 +67,7 @@ The hybrid path is:
 6. Rerank the candidate shortlist with a Voyage cross-encoder.
 7. Write a retrieval audit row (who searched, what was returned) for later review.
 
-On `worldbuilder_kb`, `author_canonical_entity_id` looks up a person by canonical id and filters to documents where that person is the author (`document_participants.role = 'author'`). If the id is unknown or already merged away, the search returns an empty result set. `worldbuilder_lookup` scopes evidence with `about_person_ids` (any participant role) and a query built from the person's display name and aliases.
+On `worldbuilder_kb`, `about` resolves a person and scopes to documents where they participate (any role); `author` / `author_canonical_entity_id` filter to authorship. Those are distinct. Free-string `source_system` / `source_type` filters accept any connector label (not a fixed enum). Recency uses `half_life_days` and `min_decay`. `worldbuilder_lookup` synthesizes structured profiles for `person`, `team`, `project`, and `glossary` under the same ACL rules, and returns queryable graph claims/relationships plus citation ids for `read_source`.
 
 ### Graph ACL (`db/repositories/graph.py`)
 
@@ -97,12 +97,12 @@ Domain services return domain types. The HTTP layer maps those into the MCP and 
 
 ## Keyword search, BM25, and Postgres
 
-Search is hybrid: **pgvector + Postgres full-text search (`ts_rank`)**, then RRF merge, then Voyage rerank when the shortlist is larger than the requested limit. Both channels stay inside Postgres (plus the optional rerank HTTP call). Child chunks are embedded and ranked; parent section text is returned for matched children.
+Search is hybrid: **pgvector + Postgres full-text search (**`ts_rank`**)**, then RRF merge, then Voyage rerank when the shortlist is larger than the requested limit. Both channels stay inside Postgres (plus the optional rerank HTTP call). Child chunks are embedded and ranked; parent section text is returned for matched children.
 
 - **Dense (pgvector):** Embed the query, find nearby chunk vectors (meaning / paraphrase match).
 - **Lexical (current):** Match query words against chunk text with Postgres FTS ordered by `ts_rank`, with ACL in the same SQL `WHERE` clause. One database, one index to keep in sync with documents. That's why this path is simple to operate on Supabase.
 
-**BM25:** A stronger lexical scorer than `ts_rank`, but stock Postgres / managed Supabase do not expose in-database BM25. This repo ships **pgvector + `ts_rank`**. Upgrading lexical ranking later means swapping the keyword SQL (or the `ChunkSearch` port) to a BM25-capable Postgres extension — not a second app-side index.
+**BM25:** A stronger lexical scorer than `ts_rank`, but stock Postgres / managed Supabase do not expose in-database BM25. This repo ships **pgvector +** `ts_rank`. Upgrading lexical ranking later means swapping the keyword SQL (or the `ChunkSearch` port) to a BM25-capable Postgres extension — not a second app-side index.
 
 **Location in code:** Lexical ranking is `ChunkSearchRepository.keyword_candidates` (FTS/`ts_rank`). Dense ranking is the vector candidate query in the same repository. Retrieval consumes ranked hits from those methods.
 
@@ -149,6 +149,7 @@ Tests:
 pytest -m "not integration and not postgres"
 pytest -m postgres   # needs DATABASE_URL
 ```
+
 ---
 
 ## Integration into production
@@ -168,8 +169,51 @@ Agent Core (or another trusted gateway) verifies the human session itself. It th
 - `X-Principal-Groups: group:<uuid>,...` when needed
 - Admin routes also need `X-Principal-Roles: admin`
 
-Tool routes include `POST /tools/search_knowledge_base`, `POST /tools/worldbuilder_kb`, `POST /tools/worldbuilder_lookup`, `POST /tools/query_facts`, and `POST /tools/search_procedural_memory`. Procedural create is `POST /v1/procedural-memories`. Agent promote-to-taxonomy is `POST /v1/promotions`.
+Tool routes include `POST /tools/search_knowledge_base`, `POST /tools/worldbuilder_kb`, `POST /tools/worldbuilder_lookup`, `POST /tools/query_facts`, `POST /tools/query_paths`, and `POST /tools/search_procedural_memory`. Procedural create is `POST /v1/procedural-memories`. Agent promote-to-taxonomy is `POST /v1/promotions`. Graph person resolve by host user is `GET /v1/graph/persons/by-platform-user/{platform_user_id}`.
+
+### Identity bridge (OM person ↔ host User)
+
+Send a verified ChangeEnvelope identity key with `namespace: "platform_user"` and `value: "<Aviary User UUID>"` (same UUID as `user:<uuid>` principals). Org Memory stores that as `PersonAlias` with `source_system = identity:platform_user`. Person graph cards expose `platform_user_id` when present. Promotions auto-fill `host_entity_id` from that alias when the caller omits it.
 
 ### How structured fields write back
 
-Org Memory emits pending rows on `GET /v1/taxonomy-proposals` and optionally pushes them when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set. The host platform should apply with its entity update API and persist `evidence_doc_ids` with the field update. Then callback `POST /v1/taxonomy-proposals/{id}/applied` or `/rejected`. Host apply logic stays on the host platform. See `contracts/host_taxonomy_apply.md`.
+Org Memory emits **field-value** proposals (not new ontology types) on `GET /v1/taxonomy-proposals` and pushes them when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set (blank URL means pull-only). Use this path for knowledge fields (title, manager, team). Operational workflow/task mutations stay on the host.
+
+Proposals bind registry predicates that declare a `platform_binding`. They do not create new host entity types or fields. Bindings come from `config/taxonomy_registry/knowledge_ontology.json`.
+
+
+| Write class                                 | Path                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| Knowledge fields (title, manager, team, …)  | `POST /v1/promotions` or generated proposals → host apply/reject |
+| Operational process (tasks, workflow state) | Host APIs directly — Org Memory does not gate these              |
+
+
+**Conflict rule:** login / permissions / assignment → host User wins. Inferred knowledge inside OM → OM wins until a proposal is applied or rejected. Worldbuilder profiles are derived; they are not the identity bridge.
+
+**Delivery:** pull `GET /v1/taxonomy-proposals`. When `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set, pending rows are also POSTed; when `TAXONOMY_PROPOSAL_WEBHOOK_SECRET` is set, requests include `X-Org-Memory-Signature: sha256=<hex>` over the exact JSON body. Agent promote: `POST /v1/promotions` creates an OM claim and a pending proposal.
+
+
+| Field                         | Meaning                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| `proposal_id`                 | OM proposal id                                                              |
+| `subject_type` / `subject_id` | OM canonical subject (e.g. person id)                                       |
+| `host_entity_id`              | Host entity / User id when known (may be auto-filled from `platform_user`)  |
+| `taxonomy_key` / `field_key`  | Host ontology binding                                                       |
+| `predicate`                   | Registry predicate key                                                      |
+| `value`                       | Proposed field value                                                        |
+| `confidence`                  | Claim confidence                                                            |
+| `evidence_doc_ids`            | OM document ids supporting the value                                        |
+| `source_claim_id`             | OM claim id                                                                 |
+| `precedence_class`            | `ground_truth` / `agent_promote` / `extraction_multi` / `extraction_single` |
+| `status`                      | `pending` until host callbacks                                              |
+
+
+**Host apply:** (1) map `subject_id` / `host_entity_id` to the host entity, (2) update `taxonomy_key.field_key`, (3) persist `evidence_doc_ids` for audit, (4) callback `POST /v1/taxonomy-proposals/{id}/applied` or `/rejected` with `decided_by`. One pending proposal per `(subject, taxonomy_key, field_key)`; re-promote supersedes. Host apply should be idempotent on `proposal_id` or slot + value.
+
+Org Memory does not create host workflows, tasks, SMS, or automations, and is not the LWW store for host ontology.
+
+
+
+### Claim freshness
+
+`query_facts` and hybrid fact ranking apply exponential freshness using `FACT_FRESHNESS_HALF_LIFE_DAYS` / `FACT_FRESHNESS_MIN_DECAY`. A predicate may set `freshness_half_life_days` in `knowledge_ontology.json` to use a different half-life than the global setting; if the field is absent, the global setting is used. Stale active facts remain stored but rank lower.

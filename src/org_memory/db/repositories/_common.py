@@ -47,6 +47,10 @@ def _document_visibility_filters_sql(alias: str = "d") -> str:
                   AND dp.person_id = ANY(CAST(:about_person_ids AS text[]))
             )
         )
+        AND (
+            CAST(:about_doc_ids AS text[]) IS NULL
+            OR {a}.doc_id = ANY(CAST(:about_doc_ids AS text[]))
+        )
         AND (CAST(:doc_id AS text) IS NULL OR {a}.doc_id = :doc_id)
         AND (CAST(:date_from AS timestamptz) IS NULL OR {a}.event_time >= :date_from)
         AND (CAST(:date_to AS timestamptz) IS NULL OR {a}.event_time <= :date_to)
@@ -90,6 +94,10 @@ def _common_filters_sql() -> str:
                   AND dp.person_id = ANY(CAST(:about_person_ids AS text[]))
             )
         )
+        AND (
+            CAST(:about_doc_ids AS text[]) IS NULL
+            OR c.doc_id = ANY(CAST(:about_doc_ids AS text[]))
+        )
         AND (CAST(:doc_id AS text) IS NULL OR c.doc_id = :doc_id)
         AND (CAST(:date_from AS timestamptz) IS NULL OR c.event_time >= :date_from)
         AND (CAST(:date_to AS timestamptz) IS NULL OR c.event_time <= :date_to)
@@ -109,6 +117,7 @@ def _common_params(
     doc_id: str | None,
     author_person_ids: list[str] | None = None,
     about_person_ids: list[str] | None = None,
+    about_doc_ids: list[str] | None = None,
     source_system: str | None = None,
 ) -> dict:
     return {
@@ -119,6 +128,7 @@ def _common_params(
         "author_patterns": author_patterns or None,
         "author_person_ids": author_person_ids or None,
         "about_person_ids": about_person_ids or None,
+        "about_doc_ids": about_doc_ids or None,
         "doc_id": doc_id,
         "date_from": date_from,
         "date_to": date_to,

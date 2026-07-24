@@ -2,80 +2,17 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import UTC, datetime
 
 import pytest
 
+from tests.postgres.helpers import make_doc
+
 pytestmark = pytest.mark.postgres
 
 USER_ALICE = "user:11111111-1111-1111-1111-111111111111"
 USER_BOB = "user:99999999-9999-9999-9999-999999999999"
-
-
-@pytest.fixture()
-def hermetic_workspace(monkeypatch):
-    if not os.environ.get("DATABASE_URL"):
-        pytest.skip("DATABASE_URL absent")
-    ws = f"hermetic-{uuid.uuid4().hex[:12]}"
-    monkeypatch.setenv("WORKSPACE_ID", ws)
-    monkeypatch.setenv("EMBEDDING_API_KEY", os.environ.get("EMBEDDING_API_KEY", "hermetic-unused"))
-    monkeypatch.setenv("RERANK_API_KEY", os.environ.get("RERANK_API_KEY", "hermetic-unused"))
-    monkeypatch.setenv("SERVICE_API_KEY", os.environ.get("SERVICE_API_KEY", "hermetic-unused"))
-    monkeypatch.setenv("OBJECT_STORE_BACKEND", "supabase")
-    monkeypatch.setenv(
-        "SUPABASE_PROJECT_URL",
-        os.environ.get("SUPABASE_PROJECT_URL", "https://hermetic.invalid"),
-    )
-    monkeypatch.setenv(
-        "SUPABASE_SERVICE_ROLE_KEY",
-        os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "hermetic-unused"),
-    )
-    monkeypatch.setenv("RETENTION_DAYS", os.environ.get("RETENTION_DAYS", "30"))
-    monkeypatch.setenv(
-        "SPEND_ALERT_TOKENS_MONTHLY",
-        os.environ.get("SPEND_ALERT_TOKENS_MONTHLY", "1000000"),
-    )
-    monkeypatch.setenv(
-        "SPEND_HARD_LIMIT_TOKENS_MONTHLY",
-        os.environ.get("SPEND_HARD_LIMIT_TOKENS_MONTHLY", "2000000"),
-    )
-    from org_memory.core.settings import get_settings
-    from org_memory.db import engine as engine_mod
-
-    get_settings.cache_clear()
-    engine_mod._engine = None
-    engine_mod._session_factory = None
-    yield ws
-    get_settings.cache_clear()
-    engine_mod._engine = None
-    engine_mod._session_factory = None
-
-
-def _doc(
-    *,
-    doc_id: str,
-    workspace_id: str,
-    org_visible: bool,
-    allowed_principals: list[str],
-    event_time: datetime,
-):
-    from org_memory.db.orm import Document
-
-    return Document(
-        doc_id=doc_id,
-        workspace_id=workspace_id,
-        source_system="test",
-        external_id=doc_id.split(":", 1)[-1],
-        source_type="test_doc",
-        title=doc_id,
-        rendered_text=f"body of {doc_id}",
-        event_time=event_time,
-        org_visible=org_visible,
-        allowed_principals=allowed_principals,
-        acl_event_time=event_time,
-    )
 
 
 def test_entities_require_all_visible_evidence(hermetic_workspace):
@@ -92,7 +29,7 @@ def test_entities_require_all_visible_evidence(hermetic_workspace):
 
     with session_scope() as session:
         session.add(
-            _doc(
+            make_doc(
                 doc_id=public_id,
                 workspace_id=hermetic_workspace,
                 org_visible=True,
@@ -101,7 +38,7 @@ def test_entities_require_all_visible_evidence(hermetic_workspace):
             )
         )
         session.add(
-            _doc(
+            make_doc(
                 doc_id=private_id,
                 workspace_id=hermetic_workspace,
                 org_visible=False,
@@ -156,7 +93,7 @@ def test_delete_retracts_structured_claim_and_entity_evidence(hermetic_workspace
 
     with session_scope() as session:
         session.add(
-            _doc(
+            make_doc(
                 doc_id=doc_id,
                 workspace_id=hermetic_workspace,
                 org_visible=True,

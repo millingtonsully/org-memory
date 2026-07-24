@@ -1,14 +1,20 @@
-"""Load and validate taxonomy registry YAML from disk."""
+"""Load and validate knowledge-ontology JSON registry files from disk."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-import yaml
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 
 from org_memory.core.errors import ConfigurationError
 from org_memory.taxonomy_registry.models import TaxonomyRegistry, TaxonomyRegistryFile
+
+_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[3] / "contracts" / "taxonomy_registry.schema.json"
+)
 
 
 def resolve_registry_dir(configured: str) -> Path:
@@ -30,24 +36,47 @@ def resolve_registry_dir(configured: str) -> Path:
     )
 
 
+def _registry_schema_validator() -> Draft202012Validator:
+    if not _SCHEMA_PATH.is_file():
+        raise ConfigurationError(
+            f"taxonomy registry JSON Schema missing: {_SCHEMA_PATH}"
+        )
+    try:
+        schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError(
+            f"Invalid taxonomy registry JSON Schema in {_SCHEMA_PATH}: {exc}"
+        ) from exc
+    return Draft202012Validator(schema)
+
+
 def load_taxonomy_registry(directory: str | Path) -> TaxonomyRegistry:
-    """Load all *.yaml / *.yml files in directory; fail closed on any error."""
+    """Load all *.json files in directory; fail closed on any error."""
     root = directory if isinstance(directory, Path) else resolve_registry_dir(str(directory))
-    files = sorted([*root.glob("*.yaml"), *root.glob("*.yml")])
+    files = sorted(root.glob("*.json"))
     if not files:
-        raise ConfigurationError(f"No taxonomy registry YAML files in {root}")
+        raise ConfigurationError(f"No taxonomy registry JSON files in {root}")
+    validator = _registry_schema_validator()
     parsed: list[TaxonomyRegistryFile] = []
     for path in files:
         try:
-            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            raise ConfigurationError(f"Invalid YAML in {path}: {exc}") from exc
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ConfigurationError(f"Invalid JSON in {path}: {exc}") from exc
         if not isinstance(raw, dict):
-            raise ConfigurationError(f"Registry file must be a mapping: {path}")
+            raise ConfigurationError(f"Registry file must be a JSON object: {path}")
+        try:
+            validator.validate(raw)
+        except JsonSchemaValidationError as exc:
+            raise ConfigurationError(
+                f"Registry file failed JSON Schema validation ({path}): {exc.message}"
+            ) from exc
         try:
             parsed.append(TaxonomyRegistryFile.model_validate(raw))
         except ValidationError as exc:
-            raise ConfigurationError(f"Invalid taxonomy registry schema in {path}: {exc}") from exc
+            raise ConfigurationError(
+                f"Invalid taxonomy registry schema in {path}: {exc}"
+            ) from exc
     try:
         return TaxonomyRegistry(parsed)
     except ValueError as exc:

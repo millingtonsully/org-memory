@@ -36,6 +36,30 @@ def _relationship_dict(r, visible_doc_ids: list[str]) -> dict:
     }
 
 
+@router.get("/persons/by-platform-user/{platform_user_id}")
+def person_by_platform_user(
+    platform_user_id: str,
+    principal: Principal = Depends(bind_principal),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Resolve OM person by host User UUID (identity:platform_user alias)."""
+    persons = PersonRepository(session)
+    person = persons.find_by_platform_user_id(platform_user_id)
+    if person is None:
+        raise NotFoundError(f"unknown platform_user: {platform_user_id}")
+    evidence = persons.visible_evidence_doc_ids(person.canonical_id, principal)
+    if not evidence:
+        raise NotFoundError(f"unknown platform_user: {platform_user_id}")
+    return {
+        "canonical_id": person.canonical_id,
+        "display_name": person.display_name,
+        "resolution_status": person.resolution_status,
+        "platform_user_id": platform_user_id.strip(),
+        "identity_metadata": person.identity_metadata,
+        "evidence_doc_ids": evidence,
+    }
+
+
 @router.get("/persons/{canonical_id}")
 def person_card(
     canonical_id: str,
@@ -60,6 +84,7 @@ def person_card(
         "canonical_id": person.canonical_id,
         "display_name": person.display_name,
         "resolution_status": person.resolution_status,
+        "platform_user_id": persons.platform_user_id_for(canonical_id),
         "identity_metadata": person.identity_metadata,
         "evidence_doc_ids": person_evidence_doc_ids,
         # Emails/aliases are withheld: they lack independent viewer ACL provenance.

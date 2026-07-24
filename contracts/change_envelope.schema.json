@@ -28,7 +28,11 @@
     },
     "IdentityKey": {
       "properties": {
-        "namespace": {"title": "Namespace", "type": "string"},
+        "namespace": {
+          "title": "Namespace",
+          "type": "string",
+          "description": "Free string. Reserved: platform_user links host User UUID (same UUID as user:<uuid> principals) via PersonAlias identity:platform_user."
+        },
         "value": {"title": "Value", "type": "string"},
         "verified": {"default": false, "title": "Verified", "type": "boolean"}
       },

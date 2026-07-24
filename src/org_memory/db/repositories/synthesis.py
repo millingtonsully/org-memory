@@ -40,6 +40,31 @@ class SynthesisTraceRepository:
         self._session.flush()
         return trace.trace_id
 
+    def latest_reusable(
+        self,
+        *,
+        tool: str,
+        subject: str,
+        input_doc_ids: list[str],
+        max_age_seconds: int,
+    ) -> SynthesisTrace | None:
+        """Return newest trace for subject when evidence doc set matches and is fresh."""
+        from datetime import UTC, datetime, timedelta
+
+        rows = self.for_subject(tool, subject, limit=5)
+        wanted = sorted(set(input_doc_ids))
+        cutoff = datetime.now(UTC) - timedelta(seconds=max_age_seconds)
+        for trace in rows:
+            if sorted(set(trace.input_doc_ids or [])) != wanted:
+                continue
+            created = trace.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            if created < cutoff:
+                continue
+            return trace
+        return None
+
     def for_subject(self, tool: str, subject: str, limit: int = 20) -> list[SynthesisTrace]:
         return (
             self._session.query(SynthesisTrace)

@@ -38,7 +38,11 @@ class IdentityEmail(BaseModel):
 
 
 class IdentityKey(BaseModel):
-    """Namespaced cross-source identifier such as an IdP or HR subject."""
+    """Namespaced cross-source identifier (IdP, HR, etc.).
+
+    Reserved: namespace `platform_user` stores the host User UUID (same UUID as
+    `user:<uuid>` principals) as PersonAlias `identity:platform_user`.
+    """
 
     namespace: str
     value: str

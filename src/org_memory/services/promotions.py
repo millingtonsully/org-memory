@@ -74,6 +74,14 @@ class PromotionService:
                 "om_canonical_id must reference an existing person or entity."
             )
 
+        resolved_host_entity_id = host_entity_id.strip()
+        if not resolved_host_entity_id and subject_type == "person":
+            from org_memory.db.repositories import PersonRepository
+
+            resolved_host_entity_id = (
+                PersonRepository(self._session).platform_user_id_for(subject_id) or ""
+            )
+
         visible = self._graph.visible_evidence_doc_ids(evidence_doc_ids, principal)
         if len(set(visible)) != len(set(evidence_doc_ids)):
             raise ValueError("Every evidence_doc_id must exist and be visible to the viewer.")
@@ -139,7 +147,7 @@ class PromotionService:
                 confidence=claim.confidence,
                 evidence_doc_ids=list(claim.evidence_doc_ids or []),
                 source_claim_id=claim.claim_id,
-                host_entity_id=host_entity_id.strip(),
+                host_entity_id=resolved_host_entity_id,
                 precedence_class=precedence_class_name(rank),
                 status="pending",
             )

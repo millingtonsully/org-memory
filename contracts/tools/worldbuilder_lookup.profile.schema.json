@@ -1,0 +1,111 @@
+{
+  "$comment": "Structured worldbuilder_lookup profile item (envelope items[0] when status=ok).",
+  "type": "object",
+  "required": [
+    "category",
+    "canonical_id",
+    "display_name",
+    "subject_descriptions",
+    "citations",
+    "synthesized_at",
+    "model"
+  ],
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": ["person", "team", "project", "glossary"]
+    },
+    "canonical_id": { "type": "string" },
+    "display_name": { "type": "string" },
+    "resolution_status": { "type": "string" },
+    "platform_user_id": { "type": ["string", "null"] },
+    "subject_descriptions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/citedStatement" }
+    },
+    "org_work_context": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/citedStatement" }
+    },
+    "vocabulary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["term"],
+        "properties": {
+          "term": { "type": "string" },
+          "note": { "type": "string" },
+          "evidence_doc_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "caveats": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "team_signals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/citedStatement" }
+    },
+    "profile_prose": { "type": "string" },
+    "profile_structure_source": {
+      "type": "string",
+      "enum": ["model", "graph", "model_and_graph", "prose_only"],
+      "description": "Where subject_descriptions / vocabulary / team_signals came from."
+    },
+    "profile": {
+      "type": "string",
+      "description": "Legacy alias for profile_prose."
+    },
+    "relationships": { "type": "array" },
+    "claims": { "type": "array" },
+    "citations": {
+      "type": "object",
+      "required": ["source_document_ids", "source_record_ids"],
+      "properties": {
+        "source_document_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source_record_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "evidence": { "type": "array" },
+    "synthesized_at": { "type": "string" },
+    "model": { "type": "string" },
+    "evidence_time_range": {
+      "type": "object",
+      "properties": {
+        "min": { "type": ["string", "null"] },
+        "max": { "type": ["string", "null"] }
+      }
+    },
+    "audit_id": { "type": ["string", "null"] },
+    "trace_id": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "citedStatement": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string" },
+        "confidence": { "type": "number" },
+        "evidence_doc_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source_record_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

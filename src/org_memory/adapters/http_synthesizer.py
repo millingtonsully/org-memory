@@ -28,21 +28,59 @@ class HttpSynthesizer:
     def model_name(self) -> str:
         return self._model
 
-    def complete(self, system_prompt: str, user_prompt: str) -> tuple[str, int]:
-        """Return (text, tokens_used). Raises VendorAPIError on failure."""
+    def complete(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        json_object: bool = False,
+    ) -> tuple[str, int]:
+        """Return (text, tokens_used). Raises VendorAPIError on failure.
+
+        When json_object=True, request OpenAI-compatible response_format json_object.
+        If the vendor rejects that parameter (HTTP 400), retry once without it —
+        that is capability detection, not invented content.
+        """
+        return self._complete(
+            system_prompt, user_prompt, json_object=json_object, allow_format_retry=True
+        )
+
+    def _complete(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        json_object: bool,
+        allow_format_retry: bool,
+    ) -> tuple[str, int]:
+        payload: dict = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.1,
+        }
+        if json_object:
+            payload["response_format"] = {"type": "json_object"}
         resp = post_with_retry(
             self._client,
             self._url,
-            json={
-                "model": self._model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.1,
-            },
+            json=payload,
             vendor="synthesis",
         )
+        if (
+            resp.status_code == 400
+            and json_object
+            and allow_format_retry
+            and "response_format" in (resp.text or "").lower()
+        ):
+            return self._complete(
+                system_prompt,
+                user_prompt,
+                json_object=False,
+                allow_format_retry=False,
+            )
         if resp.status_code != 200:
             raise VendorAPIError(
                 "synthesis",
@@ -51,11 +89,11 @@ class HttpSynthesizer:
                 raw_response=resp.text,
             )
         try:
-            payload = resp.json()
-            text = payload["choices"][0]["message"]["content"]
+            body = resp.json()
+            text = body["choices"][0]["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("message content is empty or non-text")
-            total_tokens = int(payload["usage"]["total_tokens"])
+            total_tokens = int(body["usage"]["total_tokens"])
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise VendorAPIError(
                 "synthesis",

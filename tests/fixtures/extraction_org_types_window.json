@@ -1,0 +1,17 @@
+{
+  "$comment": "Gold-style extraction window fixture for team/project/glossary richness.",
+  "source_window": "Platform owns Project Atlas. CarePod means a cross-functional clinical unit assigned to a fixed patient panel. Jordan on Platform uses the CarePod term in standup.",
+  "expected": {
+    "entities": [
+      {"type": "team", "name": "Platform"},
+      {"type": "project", "name": "Project Atlas"},
+      {"type": "glossary", "name": "CarePod"}
+    ],
+    "claims": [
+      {"subject_type": "glossary", "predicate": "definition"}
+    ],
+    "relationships": [
+      {"relationship_type": "uses_term"}
+    ]
+  }
+}

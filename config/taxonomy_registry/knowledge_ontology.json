@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "entity_types": [
+    {
+      "key": "person",
+      "description": "Canonical person in the organizational knowledge graph"
+    },
+    {
+      "key": "team",
+      "description": "Org team, group, or squad"
+    },
+    {
+      "key": "project",
+      "description": "Named initiative, workstream, or project"
+    },
+    {
+      "key": "glossary",
+      "description": "Internal term or acronym with an org-specific definition"
+    }
+  ],
+  "predicates": [
+    {
+      "key": "title",
+      "subject_types": ["person"],
+      "value_type": "string",
+      "mutually_exclusive": true,
+      "structured_field_keys": ["directory.title", "hr.title"],
+      "platform_binding": {
+        "taxonomy_key": "person",
+        "field_key": "title"
+      },
+      "freshness_half_life_days": 180,
+      "description": "Job title or role label for a person"
+    },
+    {
+      "key": "team",
+      "subject_types": ["person"],
+      "value_type": "string",
+      "mutually_exclusive": false,
+      "structured_field_keys": ["directory.team", "hr.team"],
+      "platform_binding": {
+        "taxonomy_key": "person",
+        "field_key": "team"
+      },
+      "freshness_half_life_days": 90,
+      "description": "Team membership label for a person"
+    },
+    {
+      "key": "reports_to",
+      "subject_types": ["person"],
+      "value_type": "reference",
+      "mutually_exclusive": true,
+      "structured_field_keys": ["directory.manager", "hr.manager"],
+      "platform_binding": {
+        "taxonomy_key": "person",
+        "field_key": "manager"
+      },
+      "freshness_half_life_days": 180,
+      "description": "Manager reference for a person"
+    },
+    {
+      "key": "definition",
+      "subject_types": ["glossary"],
+      "value_type": "string",
+      "mutually_exclusive": true,
+      "structured_field_keys": [],
+      "freshness_half_life_days": 365,
+      "description": "Org-specific definition of a glossary term"
+    }
+  ],
+  "relationship_types": [
+    {
+      "key": "reports_to",
+      "from_types": ["person"],
+      "to_types": ["person"],
+      "mutually_exclusive": true,
+      "description": "Current manager relationship"
+    },
+    {
+      "key": "member_of",
+      "from_types": ["person"],
+      "to_types": ["team"],
+      "mutually_exclusive": false,
+      "description": "Team membership (multi-valued)"
+    },
+    {
+      "key": "uses_term",
+      "from_types": ["person", "project"],
+      "to_types": ["glossary"],
+      "mutually_exclusive": false,
+      "description": "Person or project that uses an internal glossary term"
+    }
+  ]
+}

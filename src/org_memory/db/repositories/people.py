@@ -63,6 +63,33 @@ class PersonRepository:
         )
         return self._session.get(Person, alias.person_id) if alias else None
 
+    def find_by_platform_user_id(self, platform_user_id: str) -> Person | None:
+        """Resolve canonical person linked to a host User UUID via identity:platform_user."""
+        from org_memory.domain.identity_namespaces import PLATFORM_USER_SOURCE_SYSTEM
+
+        value = platform_user_id.strip()
+        if not value:
+            return None
+        person = self.find_by_source_id(PLATFORM_USER_SOURCE_SYSTEM, value)
+        if person is None:
+            return None
+        if person.merged_into_id:
+            return self.get(person.merged_into_id)
+        return person
+
+    def platform_user_id_for(self, person_id: str) -> str | None:
+        """Return host User UUID when exactly one identity:platform_user alias exists."""
+        from org_memory.domain.identity_namespaces import PLATFORM_USER_SOURCE_SYSTEM
+
+        aliases = [
+            a
+            for a in self.aliases_for(person_id)
+            if a.source_system == PLATFORM_USER_SOURCE_SYSTEM and a.external_id.strip()
+        ]
+        if len(aliases) != 1:
+            return None
+        return aliases[0].external_id.strip()
+
     def search_by_name(self, name: str, limit: int = 5) -> list[Person]:
         # ILIKE match for name search tools
         return (

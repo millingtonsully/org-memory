@@ -36,6 +36,7 @@ class ChunkSearch(Protocol):
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
+        about_doc_ids: list[str] | None = None,
         source_system: str | None = None,
     ) -> list[CandidateHit]: ...
 
@@ -53,5 +54,6 @@ class ChunkSearch(Protocol):
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
+        about_doc_ids: list[str] | None = None,
         source_system: str | None = None,
     ) -> list[CandidateHit]: ...

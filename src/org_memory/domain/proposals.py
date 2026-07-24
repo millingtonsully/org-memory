@@ -1,4 +1,4 @@
-"""Precedence and gating for taxonomy_proposals (pure domain)."""
+"""Precedence and gating for taxonomy_proposals field-value write-backs (pure domain)."""
 
 from __future__ import annotations
 

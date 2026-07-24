@@ -100,13 +100,20 @@ class Settings(BaseSettings):
     rerank_candidates: int = 100
     collaboration_rebuild_debounce_seconds: int = 60
 
-    # Closed taxonomy schema (YAML directory). Boot fails if missing/invalid.
+    # Closed knowledge-ontology JSON directory. Boot fails if missing/invalid.
     taxonomy_registry_dir: str = "config/taxonomy_registry"
 
-    # taxonomy_proposals delivery: blank = caller pulls
-    # GET /v1/taxonomy-proposals; non-blank = also POST each pending row here.
+    # Claim/relationship freshness ranking (distinct from passage recency).
+    fact_freshness_half_life_days: float = 180.0
+    fact_freshness_min_decay: float = 0.25
+
+    # Reuse Worldbuilder synthesis when evidence doc set is unchanged.
+    worldbuilder_cache_ttl_seconds: int = 3600
+
+    # taxonomy_proposals delivery: blank TAXONOMY_PROPOSAL_WEBHOOK_URL = pull only
+    # via GET /v1/taxonomy-proposals; non-blank = also POST each pending row here.
     taxonomy_proposal_webhook_url: str = ""
-    # Optional HMAC-SHA256 secret for X-Org-Memory-Signature: sha256=<hex>.
+    # When non-blank, webhook requests include X-Org-Memory-Signature: sha256=<hex>.
     taxonomy_proposal_webhook_secret: str = ""
 
     @field_validator("database_url")
@@ -137,6 +144,7 @@ class Settings(BaseSettings):
         "fact_activation_confidence",
         "identity_candidate_similarity",
         "identity_merge_confidence",
+        "fact_freshness_min_decay",
     )
     @classmethod
     def _require_unit_interval(cls, value: float) -> float:
@@ -150,11 +158,19 @@ class Settings(BaseSettings):
         "spend_alert_tokens_monthly",
         "spend_hard_limit_tokens_monthly",
         "collaboration_rebuild_debounce_seconds",
+        "worldbuilder_cache_ttl_seconds",
     )
     @classmethod
     def _require_positive_integer(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("candidate and size limits must be positive")
+        return value
+
+    @field_validator("fact_freshness_half_life_days")
+    @classmethod
+    def _require_positive_half_life(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("fact_freshness_half_life_days must be > 0")
         return value
 
     @field_validator("retention_days")

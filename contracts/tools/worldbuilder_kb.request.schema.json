@@ -1,11 +1,30 @@
 {
-  "$comment": "worldbuilder_kb arguments.",
+  "$comment": "POST /tools/worldbuilder_kb request body. source_system/source_type are free strings (not connector enums).",
   "type": "object",
   "properties": {
-    "about": {"type": "string", "minLength": 1},
-    "query": {"type": "string", "minLength": 1},
-    "author": {"type": "string"},
-    "author_canonical_entity_id": {"type": "string"},
+    "about": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Scope to content about this subject (person participants, or entity evidence docs)."
+    },
+    "about_category": {
+      "type": "string",
+      "enum": ["person", "team", "project", "glossary"],
+      "description": "Disambiguate about= subject type when omitted auto-search is ambiguous."
+    },
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Natural-language search text. Required unless about is set (about name used as query)."
+    },
+    "author": {
+      "type": "string",
+      "description": "Filter to content written by this person (authorship)."
+    },
+    "author_canonical_entity_id": {
+      "type": "string",
+      "description": "OM person canonical_id after author disambiguation."
+    },
     "source_type": {
       "type": "string",
       "description": "Opaque object-kind label (free string)."
@@ -19,11 +38,36 @@
       "enum": ["hybrid", "semantic", "keyword"],
       "default": "hybrid"
     },
-    "limit": {"type": "integer", "minimum": 1, "maximum": 25, "default": 10}
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 10
+    },
+    "half_life_days": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 365,
+      "default": 90
+    },
+    "min_decay": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.3
+    },
+    "date_from": {
+      "type": "string",
+      "description": "YYYY-MM-DD inclusive start"
+    },
+    "date_to": {
+      "type": "string",
+      "description": "YYYY-MM-DD inclusive end"
+    }
   },
   "anyOf": [
-    {"required": ["about"]},
-    {"required": ["query"]}
+    { "required": ["about"] },
+    { "required": ["query"] }
   ],
   "additionalProperties": false
 }

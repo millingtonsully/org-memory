@@ -15,7 +15,7 @@ dependencies = [
     "httpx>=0.27",
     "structlog>=24.1",
     "python-dotenv>=1.0",
-    "PyYAML>=6.0",
+    "jsonschema>=4.22",
     "prometheus_client>=0.20",
     "tiktoken>=0.7",
 ]
