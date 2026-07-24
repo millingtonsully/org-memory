@@ -374,6 +374,7 @@ class ExtractionService:
                         origin_subject_id=subject[1],
                         created_by="extraction:untyped",
                         decided_by="",
+                        valid_from=doc.event_time,
                     )
                 )
                 summary["claims"] += 1
@@ -396,6 +397,7 @@ class ExtractionService:
                     origin_subject_id=subject[1],
                     created_by="extraction",
                     decided_by=("automatic:confidence_gate" if status == "active" else ""),
+                    valid_from=doc.event_time,
                 )
             )
             if stored.status == FactStatus.active.value:

@@ -31,6 +31,11 @@ def test_worldbuilder_kb_requires_about_or_query() -> None:
         WorldbuilderKbRequest()
 
 
+def test_search_kb_accepts_any_source_type() -> None:
+    body = SearchKnowledgeBaseRequest(query="hello", source_type="jira_issue")
+    assert body.source_type == "jira_issue"
+
+
 def test_worldbuilder_kb_resolves_about() -> None:
     body = WorldbuilderKbRequest(about="Ada")
     assert body.resolved_query() == "Ada"

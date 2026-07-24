@@ -31,7 +31,7 @@ def ingest_envelope(
     from org_memory.core.metrics import INGEST_FAIL, INGEST_OK
 
     try:
-        doc_id = ingest.ingest_envelope(
+        result = ingest.ingest_envelope(
             envelope,
             raw_payload=envelope.model_dump_json().encode("utf-8"),
         )
@@ -43,5 +43,6 @@ def ingest_envelope(
                 envelope.source_system, f"{type(exc).__name__}: {exc}"
             )
         raise
-    INGEST_OK.inc()
-    return IngressResponse(doc_id=doc_id, status="accepted")
+    if result.status == "accepted":
+        INGEST_OK.inc()
+    return IngressResponse(doc_id=result.doc_id, status=result.status)

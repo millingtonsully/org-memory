@@ -39,7 +39,7 @@ def worldbuilder_lookup(
                     status="ambiguous",
                     items=profile["disambiguation"],
                     summary=profile["detail"],
-                    metadata={"action": "profile", "category": body.category},
+                    metadata={"action": "profile"},
                 )
             return worldbuilder_envelope(
                 status="ok",
@@ -47,7 +47,6 @@ def worldbuilder_lookup(
                 summary=f"Profile for {profile.get('display_name', name)}",
                 metadata={
                     "action": "profile",
-                    "category": body.category,
                     "canonical_id": profile.get("canonical_id"),
                     "audit_id": profile.get("audit_id"),
                     "trace_id": profile.get("trace_id"),
@@ -60,12 +59,21 @@ def worldbuilder_lookup(
                 status_code=422,
                 detail="action=read_source requires source_document_ids (or read_source).",
             )
-        sources = service.read_source(principal, doc_ids)
+        payload = service.read_source(principal, doc_ids)
+        sources = payload["sources"]
+        outcomes = payload["outcomes"]
+        forbidden = sum(1 for o in outcomes if o["outcome"] == "forbidden")
+        missing = sum(1 for o in outcomes if o["outcome"] == "not_found")
+        status = "ok" if not forbidden and not missing else "partial"
         return worldbuilder_envelope(
-            status="ok",
+            status=status,
             items=sources,
-            summary=f"{len(sources)} sources readable",
-            metadata={"action": "read_source", "requested": doc_ids},
+            summary=f"{len(sources)} sources readable; {forbidden} forbidden; {missing} not_found",
+            metadata={
+                "action": "read_source",
+                "requested": doc_ids,
+                "outcomes": outcomes,
+            },
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -32,6 +32,7 @@ def search_knowledge_base(
         query=body.query,
         limit=body.limit,
         source_type=body.source_type,
+        source_system=body.source_system,
         author=body.author,
         date_from=parse_yyyy_mm_dd(body.date_from),
         date_to=parse_yyyy_mm_dd(body.date_to, end_of_day=True),
@@ -55,7 +56,8 @@ def worldbuilder_kb(
         principal=principal,
         query=body.resolved_query(),
         limit=body.limit,
-        source_type=body.resolved_source_type(),
+        source_type=body.source_type,
+        source_system=body.source_system,
         author=body.author,
         author_canonical_entity_id=body.author_canonical_entity_id,
         mode=body.mode.value,
@@ -63,14 +65,17 @@ def worldbuilder_kb(
     )
     items = [
         {
+            "chunk_id": p.chunk_id,
             "doc_id": p.doc_id,
             "text": p.text,
             "source_type": p.source_type,
+            "source_system": p.source_system or None,
             "author": p.author_display_name,
             "title": p.title,
             "deep_link": p.deep_link,
             "score": p.score,
             "event_time": p.event_time.isoformat(),
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
         }
         for p in result.passages
     ]
@@ -80,8 +85,8 @@ def worldbuilder_kb(
         summary=f"{len(items)} passages for {body.resolved_query()!r}",
         metadata={
             "mode": body.mode.value,
-            "connector": body.connector.value if body.connector else None,
-            # Resolved to author display/alias patterns inside retrieval; unknown id → empty.
+            "source_type": body.source_type,
+            "source_system": body.source_system,
             "author_canonical_entity_id": body.author_canonical_entity_id,
             "audit_id": result.audit_id,
             "total_candidates": result.total_candidates,

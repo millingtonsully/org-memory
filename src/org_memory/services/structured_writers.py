@@ -91,11 +91,12 @@ class RegistryBackedStructuredFieldWriter:
                     origin_subject_id=subject[1],
                     created_by="structured_field:ground_truth",
                     decided_by="automatic:taxonomy_registry",
+                    valid_from=doc.event_time,
                 )
             )
             written.append(claim.claim_id)
             if pred.mutually_exclusive:
-                _supersede_siblings(graph, claim)
+                graph.supersede_slot_rivals(claim, "automatic:taxonomy_registry")
         return written
 
 
@@ -119,16 +120,3 @@ def _stringify_value(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value).strip()
-
-
-def _supersede_siblings(graph: GraphRepository, winner: Claim) -> None:
-    """Retire other active values in a mutually exclusive slot."""
-    rivals = graph.active_claims_for_slot_locked(
-        winner.subject_type, winner.subject_id, winner.predicate
-    )
-    for rival in rivals:
-        if rival.claim_id == winner.claim_id:
-            continue
-        if rival.object_text == winner.object_text:
-            continue
-        graph.supersede_claim(rival, winner.claim_id, "automatic:taxonomy_registry")

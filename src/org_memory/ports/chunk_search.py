@@ -16,8 +16,8 @@ from org_memory.domain.models import Principal
 
 class CandidateHit(dict):
     """Keys: chunk_id, doc_id, source_type, title, text, parent_chunk_id,
-    author_display_name, event_time, deep_link, rank. text is parent section
-    text when parent_chunk_id is set."""
+    author_display_name, event_time, deep_link, source_system, updated_at, rank.
+    text is parent section text when parent_chunk_id is set."""
 
 
 class ChunkSearch(Protocol):
@@ -27,15 +27,16 @@ class ChunkSearch(Protocol):
         embedding_model: str,
         principal: Principal,
         limit: int,
-        source_type: str | None,
-        author_patterns: list[str] | None,
-        date_from: datetime | None,
-        date_to: datetime | None,
-        updated_from: datetime | None,
-        updated_to: datetime | None,
-        doc_id: str | None,
+        source_type: str | None = None,
+        author_patterns: list[str] | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+        doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
+        source_system: str | None = None,
     ) -> list[CandidateHit]: ...
 
     def keyword_candidates(
@@ -43,13 +44,14 @@ class ChunkSearch(Protocol):
         query_text: str,
         principal: Principal,
         limit: int,
-        source_type: str | None,
-        author_patterns: list[str] | None,
-        date_from: datetime | None,
-        date_to: datetime | None,
-        updated_from: datetime | None,
-        updated_to: datetime | None,
-        doc_id: str | None,
+        source_type: str | None = None,
+        author_patterns: list[str] | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+        doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
+        source_system: str | None = None,
     ) -> list[CandidateHit]: ...

@@ -154,7 +154,8 @@ def normalize_email(value: str) -> str:
     return f"{local}@{domain}"
 
 
-def _refresh_metadata(session: Session, person: Person) -> None:
+def refresh_identity_metadata(session: Session, person: Person) -> None:
+    """Store only deterministic metadata derived from source aliases."""
     aliases = (
         session.query(PersonAlias)
         .filter(
@@ -220,8 +221,8 @@ def merge_people(session: Session, keep: Person, merge: Person) -> None:
     merge.merged_into_id = keep.canonical_id
     merge.resolution_status = "merged"
     merge.updated_at = utcnow()
-    _refresh_metadata(session, keep)
-    _refresh_metadata(session, merge)
+    refresh_identity_metadata(session, keep)
+    refresh_identity_metadata(session, merge)
 
 
 def split_person(session: Session, root: Person, child: Person, reason: str) -> None:
@@ -259,8 +260,8 @@ def split_person(session: Session, root: Person, child: Person, reason: str) -> 
     child.resolution_status = "provisional"
     child.updated_at = utcnow()
     root.updated_at = utcnow()
-    _refresh_metadata(session, root)
-    _refresh_metadata(session, child)
+    refresh_identity_metadata(session, root)
+    refresh_identity_metadata(session, child)
 
     decision = (
         session.query(PersonMergeDecision)

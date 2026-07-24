@@ -1,5 +1,5 @@
 {
-  "$comment": "MCP tool result envelope for search_knowledge_base. content[0].text is a JSON array string (empty → \"[]\").",
+  "$comment": "MCP tool result envelope for search_knowledge_base. content[0].text is a JSON object string with passages and facts.",
   "type": "object",
   "required": ["content", "isError", "status"],
   "properties": {

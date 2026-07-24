@@ -15,6 +15,7 @@ class JobType(str, Enum):
     extract_graph = "extract_graph"
     adjudicate_persons = "adjudicate_persons"
     resolve_claim_conflict = "resolve_claim_conflict"
+    resolve_relationship_conflict = "resolve_relationship_conflict"
     generate_taxonomy_proposals = "generate_taxonomy_proposals"
     aggregate_collaboration_edges = "aggregate_collaboration_edges"
     push_taxonomy_proposal_webhook = "push_taxonomy_proposal_webhook"

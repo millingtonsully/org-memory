@@ -60,6 +60,10 @@ class ProceduralMemoryService:
     ) -> ProceduralMemory:
         if not org_visible and not allowed_principals:
             raise ValueError("Procedural memory requires org_visible=true or allowed_principals.")
+        if org_visible and not evidence_doc_ids:
+            raise ValueError("org_visible procedural memories require nonempty evidence_doc_ids.")
+        if not evidence_doc_ids:
+            raise ValueError("Procedural memory requires nonempty evidence_doc_ids.")
         if not org_visible and not (set(allowed_principals) & set(principal.all_principals())):
             raise ValueError("The creating viewer must be included in the procedural memory ACL.")
         visible_evidence = self._graph.visible_evidence_doc_ids(evidence_doc_ids, principal)
@@ -198,7 +202,15 @@ class ProceduralMemoryService:
             return {"memories": [], "audit_id": audit_id}
 
         if len(candidates) <= limit:
-            ordered = list(zip(candidates[:limit], range(len(candidates[:limit]), 0, -1), strict=True))
+            shortlist = candidates[:limit]
+            ordered = [
+                (memory, float(rank))
+                for memory, rank in zip(
+                    shortlist,
+                    range(len(shortlist), 0, -1),
+                    strict=True,
+                )
+            ]
             did_rerank = False
         else:
             documents = [

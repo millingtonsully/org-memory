@@ -73,7 +73,7 @@ class WorldbuilderService:
 
         relationships = self._graph.relationships_for_viewer("person", person.canonical_id, principal)
         claims = self._graph.claims_for_viewer("person", person.canonical_id, principal, statuses=["active"])
-        graph_block = self._render_graph_facts(person.canonical_id, relationships, claims)
+        graph_block = self._render_graph_facts(principal, relationships, claims)
 
         profile_text, tokens = self._synth.complete(
             _PROFILE_SYSTEM_PROMPT,
@@ -157,11 +157,11 @@ class WorldbuilderService:
             ordered.append(name.strip())
         return " ".join(ordered) if ordered else person.display_name
 
-    def _render_graph_facts(self, canonical_id: str, relationships, claims) -> str:
+    def _render_graph_facts(self, principal: Principal, relationships, claims) -> str:
         lines: list[str] = []
         for r, visible_doc_ids in relationships:
-            from_label = self._node_label(r.from_type, r.from_id)
-            to_label = self._node_label(r.to_type, r.to_id)
+            from_label = self._node_label(principal, r.from_type, r.from_id)
+            to_label = self._node_label(principal, r.to_type, r.to_id)
             evidence = ", ".join(visible_doc_ids[:3])
             lines.append(f"- {from_label} {r.relationship_type} {to_label} [{evidence}]")
         for c, visible_doc_ids in claims:
@@ -169,25 +169,34 @@ class WorldbuilderService:
             lines.append(f"- {c.predicate}: {c.object_text} [{evidence}]")
         return "\n".join(lines) or "(none)"
 
-    def _node_label(self, node_type: str, node_id: str) -> str:
+    def _node_label(self, principal: Principal, node_type: str, node_id: str) -> str:
+        """Return a display label only when the node is viewer-visible; else opaque id."""
         if node_type == "person":
+            if not self._persons.visible_evidence_doc_ids(node_id, principal):
+                return f"person:{node_id}"
             person = self._persons.get(node_id)
-            return person.display_name if person else node_id
-        entity = self._graph.get_entity(node_id)
-        return entity.name if entity else node_id
+            return person.display_name if person else f"person:{node_id}"
+        scoped = self._graph.get_entity_for_viewer(node_id, principal)
+        if scoped is None:
+            return f"{node_type}:{node_id}"
+        entity, _ = scoped
+        return entity.name
 
-    def read_source(self, principal: Principal, doc_ids: list[str]) -> list[dict]:
-        """Load full source units by doc_id, subject to viewer ACL."""
+    def read_source(self, principal: Principal, doc_ids: list[str]) -> dict:
+        """Load full source units by doc_id with per-id outcomes under viewer ACL."""
         from org_memory.core.settings import get_settings
 
         results: list[dict] = []
+        outcomes: list[dict] = []
         viewer = principal.all_principals()
         workspace_id = get_settings().workspace_id
         for doc_id in doc_ids:
             doc = self._session.get(Document, doc_id)
             if doc is None or doc.deleted or doc.workspace_id != workspace_id:
+                outcomes.append({"doc_id": doc_id, "outcome": "not_found"})
                 continue
             if not (doc.org_visible or set(doc.allowed_principals) & set(viewer)):
+                outcomes.append({"doc_id": doc_id, "outcome": "forbidden"})
                 continue
             chunks = (
                 self._session.query(Chunk)
@@ -214,15 +223,18 @@ class WorldbuilderService:
                 {
                     "doc_id": doc.doc_id,
                     "source_type": doc.source_type,
+                    "source_system": doc.source_system,
                     "title": doc.title,
                     "author_display_name": doc.author_display_name,
                     "event_time": doc.event_time.isoformat(),
+                    "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
                     "deep_link": doc.deep_link,
                     "rendered_text": doc.rendered_text,
                     "chunks": [{"chunk_id": c.chunk_id, "text": c.text} for c in chunks],
                 }
             )
-        return results
+            outcomes.append({"doc_id": doc_id, "outcome": "ok"})
+        return {"sources": results, "outcomes": outcomes}
 
 
 def _build_profile_prompt(name: str, graph_block: str, passages: list[Passage]) -> str:

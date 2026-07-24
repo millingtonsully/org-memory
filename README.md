@@ -8,7 +8,7 @@ External sync workers push structured change events into an ingress API. Tools c
 
 ## How it works
 
-The API accepts ChangeEnvelope JSON (the ingest contract for one content change). It archives the raw payload, writes documents and parent/child text chunks into Postgres, and enqueues background jobs for embeddings and graph extraction. When someone searches, the service embeds the query, fetches vector and keyword candidates under access-control filters, merges those ranked lists with reciprocal rank fusion, then reranks with a cross-encoder when the shortlist is larger than the requested limit. A separate worker process drains the job queue. Embedding and chat vendor calls run in that worker, not inside the HTTP request path.
+The API accepts ChangeEnvelope JSON (the ingest contract for one content change). It archives the raw payload, writes documents and parent/child text chunks into Postgres, and enqueues background jobs for embeddings and graph extraction. When someone searches, the service embeds the query, fetches vector and keyword candidates under access-control filters, merges those ranked lists with reciprocal rank fusion, then reranks with a cross-encoder when the shortlist is larger than the requested limit. A separate worker process drains the job queue. Ingest defers embed/extract vendor calls to the worker; search, Worldbuilder synthesis, and procedural create/search call vendors on the HTTP request path.
 
 ---
 
@@ -30,7 +30,7 @@ The API accepts ChangeEnvelope JSON (the ingest contract for one content change)
 | `taxonomy_registry/` | Closed YAML schema for predicates and platform field bindings     |
 
 
-**Contracts** are under `contracts/`. The ChangeEnvelope JSON Schema is the ingest contract. Tool request schemas live under `contracts/tools/`. Example envelopes live under `contracts/fixtures/sync_envelopes/`.
+**Contracts** are under `contracts/`. The ChangeEnvelope JSON Schema is the ingest contract. Tool request schemas live under `contracts/tools/`.
 
 **Database schema** lives in a single Alembic revision: `alembic/versions/0001_initial_schema.py`. On a new database, run `alembic upgrade head`. Schema changes are edited into that file in place; this project does not keep a chain of numbered migrations.
 
@@ -59,7 +59,7 @@ Chunk search builds access control into the SQL query. The viewer's principals (
 
 The hybrid path is:
 
-1. Embed the query (OpenAI-compatible `/embeddings`) into a vector; moving to Voyage is better since our re-ranker is on Voyage, they have custom models, and special embedding attributes.
+1. Embed the query (OpenAI-compatible `/embeddings` by default) into a vector.
 2. Grab vector candidates with pgvector (cosine similarity over an HNSW approximate-nearest-neighbor index). This is the dense half of hybrid search.
 3. Fetch keyword candidates with Postgres full-text search (`tsvector` + `ts_rank`) under the same ACL filters in SQL. This is the lexical half; together with step 2 that's pgvector + FTS.
 4. Merge the two ranked lists with reciprocal rank fusion (RRF), which just combines two rankings when scores are on different scales.
@@ -102,11 +102,7 @@ Search is hybrid: **pgvector + Postgres full-text search (`ts_rank`)**, then RRF
 - **Dense (pgvector):** Embed the query, find nearby chunk vectors (meaning / paraphrase match).
 - **Lexical (current):** Match query words against chunk text with Postgres FTS ordered by `ts_rank`, with ACL in the same SQL `WHERE` clause. One database, one index to keep in sync with documents. That's why this path is simple to operate on Supabase.
 
-**BM25** BM25 is a better lexical scorer than `ts_rank` for keyword search. Stock Postgres and managed Supabase don't expose in-database BM25 (that needs something like ParadeDB `pg_search` / a host that allows it). So the honest options are:
-
-1. **Best for simplicity + BM25:** Run Org Memory on a Postgres provider that supports BM25 in the database. Then keyword ranking and ACL stay in one place (same operational story as today's FTS), but with BM25 scores. Swap the keyword SQL (or the `ChunkSearch` port) to that BM25 operator; keep pgvector, RRF, and rerank.
-2. **What this repo ships on Supabase:** pgvector + `ts_rank`. Good enough for hybrid search; weaker lexical ranking than BM25; no second index outside Postgres.
-3. **BM25 on Supabase without a BM25-capable Postgres:** Run BM25 in the app process; keep a lexical index on disk next to the API/worker, sync it whenever chunks change, rank with BM25, then filter candidates by ACL in Postgres. That works, but you add a second store, multi-process sync (`BM25_INDEX_DIR` shared or rebuild-on-start), and operational failure modes that in-database search does not have.
+**BM25:** A stronger lexical scorer than `ts_rank`, but stock Postgres / managed Supabase do not expose in-database BM25. This repo ships **pgvector + `ts_rank`**. Upgrading lexical ranking later means swapping the keyword SQL (or the `ChunkSearch` port) to a BM25-capable Postgres extension — not a second app-side index.
 
 **Location in code:** Lexical ranking is `ChunkSearchRepository.keyword_candidates` (FTS/`ts_rank`). Dense ranking is the vector candidate query in the same repository. Retrieval consumes ranked hits from those methods.
 
@@ -172,45 +168,8 @@ Agent Core (or another trusted gateway) verifies the human session itself. It th
 - `X-Principal-Groups: group:<uuid>,...` when needed
 - Admin routes also need `X-Principal-Roles: admin`
 
-Tool routes include `POST /tools/search_knowledge_base`, `POST /tools/worldbuilder_kb`, and `POST /tools/worldbuilder_lookup`.
+Tool routes include `POST /tools/search_knowledge_base`, `POST /tools/worldbuilder_kb`, `POST /tools/worldbuilder_lookup`, `POST /tools/query_facts`, and `POST /tools/search_procedural_memory`. Procedural create is `POST /v1/procedural-memories`. Agent promote-to-taxonomy is `POST /v1/promotions`.
 
 ### How structured fields write back
 
-Org Memory emits pending rows on `GET /v1/taxonomy-proposals` and optionally pushes them when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set. The host platform should apply with Rails `update_entity` (or equivalent) and persist `evidence_doc_ids` with the field update. Then callback `POST /v1/taxonomy-proposals/{id}/applied` or `/rejected`. Rails apply logic stays in the host platform.
-
----
-
-## Agent platform architecture
-
-The following is the architecture for an agent that would act on org memory.
-
-### Request path
-
-The Rails GraphQL API authenticates the session, serves config and entity CRUD from PostgreSQL, runs workflows and Sidekiq jobs, and agent sessions. Agent Core is the MCP server. It registers tools, calls Anthropic models, proxies connectors, manages agent memory files (markdown) on S3, and orchestrates the E2B sandboxes. KB search goes to Databricks Managed Vector Search.
-
-### Deployable pieces
-
-| Service | Owns |
-|---------|------|
-| API (Rails) | GraphQL, config CRUD, entities, workflows, tasks, automations, Sidekiq, Twilio plugin surface |
-| Agent Core (TypeScript MCP) | Tool dispatch, LLM orchestration, connector primitives, KB tool routing, S3 memory files, sandbox orchestration |
-| E2B Sandbox | Isolated Python and shell for agent tools |
-| Databricks Vector Search | Semantic search over imported org content|
-| Vapi | Voice assistants and calls |
-| Twilio | SMS, voice, numbers |
-
-### Connectors
-
-On-demand API proxies through stored credentials (`connector_api_request`). MCP primitives exist for Slack and Gmail. Knowledge Base import into Databricks is a separate pre-import path. Inbound listeners support generic webhooks, Gmail Pub/Sub, and SES routing into taxonomies.
-
-Connector-level ACL mapping into `org_visible` / `allowed_principals` is thin in the host platform's connector layer today.
-
-### Auth and tenancy
-
-Human auth is session-based in Rails. Sandbox to MCP uses `X-Sandbox-Nonce`. Data is scoped by Customer. Permission groups control task type access. Agent sessions are tracked with execution modes and statuses. Formal service-key impersonation internals are not exposed in the tool catalog.
-
-### Workflows, automations, ontology
-
-Workflows are finite state machines on taxonomies with steps, transitions, and one action per step. Actions include create task, update fields, SMS, Slack, invoke agent, AI field updates, automations, plugins, run_code, and related-entity helpers. Automations are event-driven rules with rate limits.
-
-Ontology is a relational entity-attribute-value system (taxonomies, fields, relationships, enum sets). Entity updates are last-write-wins. Deterministic queries use GraphQL and MCP entity tools. `fulltext_search` uses Postgres full-text search. Probabilistic org-content search is `search_knowledge_base` and Worldbuilder.
+Org Memory emits pending rows on `GET /v1/taxonomy-proposals` and optionally pushes them when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set. The host platform should apply with its entity update API and persist `evidence_doc_ids` with the field update. Then callback `POST /v1/taxonomy-proposals/{id}/applied` or `/rejected`. Host apply logic stays on the host platform. See `contracts/host_taxonomy_apply.md`.

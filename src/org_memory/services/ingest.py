@@ -5,14 +5,17 @@ extraction are enqueued for the worker when content changes; ingest never calls
 a vendor on the request path. doc_id replays are idempotent; blob keys are
 versioned per event. Collaboration rebuilds are enqueued with queue debounce.
 
-Blob order: compute key → mutate DB → object_store.put. If put fails, the
+Blob order: apply DB → on accepted only, object_store.put. If put fails, the
 request transaction rolls back (no rows pointing at a missing blob). If put
 succeeds and a later step fails before commit, best-effort delete the blob.
+Stale envelopes return skipped_stale without archiving.
 """
 
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
+from typing import Literal
 
 import structlog
 from sqlalchemy.orm import Session
@@ -39,6 +42,14 @@ from org_memory.services.structured_writers import (
 
 logger = structlog.get_logger(__name__)
 
+IngestStatus = Literal["accepted", "skipped_stale"]
+
+
+@dataclass(frozen=True)
+class IngestResult:
+    doc_id: str
+    status: IngestStatus
+
 
 def make_doc_id(source_system: str, external_id: str) -> str:
     return f"{source_system}:{external_id}"
@@ -62,8 +73,8 @@ class IngestService:
         self._entities = entity_resolution
         self._structured = structured_writer or RegistryBackedStructuredFieldWriter()
 
-    def ingest_envelope(self, envelope: ChangeEnvelope, raw_payload: bytes) -> str:
-        """Process one envelope in the caller transaction. Returns doc_id."""
+    def ingest_envelope(self, envelope: ChangeEnvelope, raw_payload: bytes) -> IngestResult:
+        """Process one envelope in the caller transaction."""
         settings = get_settings()
         doc_id = make_doc_id(envelope.source_system, envelope.external_id)
 
@@ -72,12 +83,13 @@ class IngestService:
             f"{settings.workspace_id}/envelopes/{doc_id.replace(':', '/')}/"
             f"{envelope.event_time.strftime('%Y%m%dT%H%M%SZ')}-{payload_hash}.json"
         )
+        result = self._apply_envelope(envelope, doc_id, blob_key, payload_hash, settings.workspace_id)
+        if result.status != "accepted":
+            return result
         archived = False
         try:
-            result = self._apply_envelope(envelope, doc_id, blob_key, payload_hash, settings.workspace_id)
             self._objects.put(blob_key, raw_payload, "application/json")
             archived = True
-            # Hook after a successful put (tests / future post-archive steps).
             self._on_blob_archived(blob_key)
             return result
         except Exception:
@@ -103,15 +115,14 @@ class IngestService:
         blob_key: str,
         payload_hash: str,
         workspace_id: str,
-    ) -> str:
-        self._connectors.record_envelope(envelope.source_system, envelope.event_time)
-
+    ) -> IngestResult:
         if envelope.change_kind == ChangeKind.delete:
+            self._connectors.record_envelope(envelope.source_system, envelope.event_time)
             self._docs.tombstone(doc_id)
             self._graph.remove_document_evidence(doc_id)
             self._versions.record(doc_id, "delete", envelope.event_time, blob_key, payload_hash)
             logger.info("ingest.tombstoned", doc_id=doc_id)
-            return doc_id
+            return IngestResult(doc_id=doc_id, status="accepted")
 
         if envelope.change_kind == ChangeKind.permission_change:
             try:
@@ -123,10 +134,11 @@ class IngestService:
                 )
             except StaleEnvelopeError as exc:
                 logger.warning("ingest.stale_acl_skipped", doc_id=doc_id, reason=str(exc))
-                return doc_id
+                return IngestResult(doc_id=doc_id, status="skipped_stale")
+            self._connectors.record_envelope(envelope.source_system, envelope.event_time)
             self._versions.record(doc_id, "permission_change", envelope.event_time, blob_key, payload_hash)
             logger.info("ingest.acl_updated", doc_id=doc_id)
-            return doc_id
+            return IngestResult(doc_id=doc_id, status="accepted")
 
         incoming = Document(
             doc_id=doc_id,
@@ -161,7 +173,8 @@ class IngestService:
             stored = self._docs.upsert_content(incoming)
         except StaleEnvelopeError as exc:
             logger.warning("ingest.stale_envelope_skipped", doc_id=doc_id, reason=str(exc))
-            return doc_id
+            return IngestResult(doc_id=doc_id, status="skipped_stale")
+        self._connectors.record_envelope(envelope.source_system, envelope.event_time)
         self._versions.record(doc_id, envelope.change_kind.value, envelope.event_time, blob_key, payload_hash)
 
         chunk_count = 0
@@ -282,7 +295,7 @@ class IngestService:
             content_changed=content_changed,
             structured_facts=len(written),
         )
-        return doc_id
+        return IngestResult(doc_id=doc_id, status="accepted")
 
 
 def _document_metadata(envelope: ChangeEnvelope) -> dict:

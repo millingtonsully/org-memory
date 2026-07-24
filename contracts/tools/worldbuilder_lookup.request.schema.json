@@ -4,7 +4,6 @@
   "properties": {
     "action": {"type": "string", "enum": ["profile", "read_source"]},
     "name": {"type": "string"},
-    "category": {"type": "string"},
     "query": {"type": "string"},
     "source_document_ids": {"type": "array", "items": {"type": "string"}},
     "source_record_ids": {"type": "array", "items": {"type": "string"}},

@@ -21,7 +21,3 @@ def configure_logging(level: int = logging.INFO) -> None:
         wrapper_class=structlog.make_filtering_bound_logger(level),
         logger_factory=structlog.PrintLoggerFactory(),
     )
-
-
-def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(name)

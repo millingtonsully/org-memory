@@ -17,6 +17,7 @@ from org_memory.db.orm import (
     Relationship,
     utcnow,
 )
+from org_memory.db.repositories._common import _document_visibility_filters_sql
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import Principal
 
@@ -39,6 +40,7 @@ class GraphRepository:
         limit: int,
         *,
         source_type: str | None = None,
+        source_system: str | None = None,
         author_patterns: list[str] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -51,66 +53,14 @@ class GraphRepository:
         """Keyword candidates filtered by current evidence ACL in SQL.
         """
         rows = self._session.execute(
-            sql("""
+            sql(f"""
                 WITH query AS (
                     SELECT websearch_to_tsquery('english', :query_text) AS q
                 ),
                 visible_docs AS (
                     SELECT d.doc_id
                     FROM documents d
-                    WHERE d.workspace_id = :workspace_id
-                      AND d.deleted = false
-                      AND (
-                          d.org_visible = true
-                          OR d.allowed_principals
-                             && CAST(:viewer_principals AS text[])
-                      )
-                      AND (
-                          CAST(:source_type AS text) IS NULL
-                          OR d.source_type = :source_type
-                      )
-                      AND (
-                          CAST(:author_patterns AS text[]) IS NULL
-                          OR d.author_display_name
-                             ILIKE ANY(CAST(:author_patterns AS text[]))
-                      )
-                      AND (
-                          CAST(:author_person_ids AS text[]) IS NULL
-                          OR EXISTS (
-                              SELECT 1 FROM document_participants dp
-                              WHERE dp.doc_id = d.doc_id
-                                AND dp.person_id = ANY(CAST(:author_person_ids AS text[]))
-                                AND dp.role = 'author'
-                          )
-                      )
-                      AND (
-                          CAST(:about_person_ids AS text[]) IS NULL
-                          OR EXISTS (
-                              SELECT 1 FROM document_participants dp
-                              WHERE dp.doc_id = d.doc_id
-                                AND dp.person_id = ANY(CAST(:about_person_ids AS text[]))
-                          )
-                      )
-                      AND (
-                          CAST(:date_from AS timestamptz) IS NULL
-                          OR d.event_time >= :date_from
-                      )
-                      AND (
-                          CAST(:date_to AS timestamptz) IS NULL
-                          OR d.event_time <= :date_to
-                      )
-                      AND (
-                          CAST(:updated_from AS timestamptz) IS NULL
-                          OR d.updated_at >= :updated_from
-                      )
-                      AND (
-                          CAST(:updated_to AS timestamptz) IS NULL
-                          OR d.updated_at <= :updated_to
-                      )
-                      AND (
-                          CAST(:doc_id AS text) IS NULL
-                          OR d.doc_id = :doc_id
-                      )
+                    WHERE {_document_visibility_filters_sql("d")}
                 ),
                 candidates AS (
                     SELECT
@@ -136,6 +86,8 @@ class GraphRepository:
                     ) evidence
                     WHERE c.workspace_id = :workspace_id
                       AND c.status = 'active'
+                      AND (c.valid_from IS NULL OR c.valid_from <= now())
+                      AND (c.valid_to IS NULL OR c.valid_to > now())
                       AND cardinality(c.evidence_doc_ids) > 0
                       AND cardinality(evidence.doc_ids) = (
                           SELECT count(DISTINCT e) FROM unnest(c.evidence_doc_ids) AS e
@@ -150,7 +102,9 @@ class GraphRepository:
                         r.relationship_id AS fact_id,
                         'relationship'::text AS fact_type,
                         trim(
-                            r.from_label || ' ' || r.relationship_type || ' ' || r.to_label
+                            r.from_type || ':' || r.from_id || ' ' ||
+                            r.relationship_type || ' ' ||
+                            r.to_type || ':' || r.to_id
                         ) AS fact_text,
                         r.confidence,
                         evidence.doc_ids AS evidence_doc_ids,
@@ -172,6 +126,8 @@ class GraphRepository:
                     ) evidence
                     WHERE r.workspace_id = :workspace_id
                       AND r.status = 'active'
+                      AND (r.valid_from IS NULL OR r.valid_from <= now())
+                      AND (r.valid_to IS NULL OR r.valid_to > now())
                       AND cardinality(r.evidence_doc_ids) > 0
                       AND cardinality(evidence.doc_ids) = (
                           SELECT count(DISTINCT e) FROM unnest(r.evidence_doc_ids) AS e
@@ -193,6 +149,7 @@ class GraphRepository:
                 "workspace_id": self._ws,
                 "viewer_principals": principal.all_principals(),
                 "source_type": source_type,
+                "source_system": source_system,
                 "author_patterns": author_patterns,
                 "author_person_ids": author_person_ids,
                 "about_person_ids": about_person_ids,
@@ -372,7 +329,7 @@ class GraphRepository:
         if as_of is not None:
             q = q.filter(
                 (Relationship.valid_from.is_(None)) | (Relationship.valid_from <= as_of),
-                (Relationship.valid_to.is_(None)) | (Relationship.valid_to >= as_of),
+                (Relationship.valid_to.is_(None)) | (Relationship.valid_to > as_of),
             )
         return q.order_by(Relationship.created_at).all()
 
@@ -419,6 +376,8 @@ class GraphRepository:
             }
             existing.evidence_quotes = list(quotes.values())
             existing.confidence = max(existing.confidence, claim.confidence)
+            if existing.valid_from is None and claim.valid_from is not None:
+                existing.valid_from = claim.valid_from
             if claim.status == FactStatus.active.value and existing.status != FactStatus.active.value:
                 transition_fact(
                     existing,
@@ -483,13 +442,62 @@ class GraphRepository:
         )
         return row[0] if row is not None else None
 
-    def supersede_claim(self, claim: Claim, superseded_by_claim_id: str, decided_by: str) -> None:
+    def supersede_claim(
+        self,
+        claim: Claim,
+        superseded_by_claim_id: str,
+        decided_by: str,
+        *,
+        valid_to: datetime | None = None,
+    ) -> None:
         """Retire a losing claim in a mutually-exclusive slot (retained, not deleted)."""
+        winner = self._session.get(Claim, superseded_by_claim_id)
+        close_at = valid_to
+        if close_at is None and winner is not None:
+            close_at = winner.valid_from
+        if close_at is None:
+            close_at = utcnow()
+        claim.valid_to = close_at
         transition_fact(claim, FactStatus.superseded, decided_by)
         claim.superseded_by_claim_id = superseded_by_claim_id
 
+    def supersede_slot_rivals(self, winner: Claim, decided_by: str) -> None:
+        """Retire other active values in a mutually exclusive claim slot."""
+        rivals = self.active_claims_for_slot_locked(
+            winner.subject_type, winner.subject_id, winner.predicate
+        )
+        for rival in rivals:
+            if rival.claim_id == winner.claim_id:
+                continue
+            if rival.object_text == winner.object_text:
+                continue
+            self.supersede_claim(rival, winner.claim_id, decided_by)
+
+    def supersede_relationship(
+        self,
+        relationship: Relationship,
+        superseded_by_relationship_id: str,
+        decided_by: str,
+        *,
+        valid_to: datetime | None = None,
+    ) -> None:
+        """Retire a losing relationship in a mutually-exclusive slot."""
+        winner = self._session.get(Relationship, superseded_by_relationship_id)
+        close_at = valid_to
+        if close_at is None and winner is not None:
+            close_at = winner.valid_from
+        if close_at is None:
+            close_at = utcnow()
+        relationship.valid_to = close_at
+        transition_fact(relationship, FactStatus.superseded, decided_by)
+        relationship.superseded_by_relationship_id = superseded_by_relationship_id
+
     def claims_for(
-        self, subject_type: str, subject_id: str, statuses: list[str] | None = None
+        self,
+        subject_type: str,
+        subject_id: str,
+        statuses: list[str] | None = None,
+        as_of: datetime | None = None,
     ) -> list[Claim]:
         q = self._session.query(Claim).filter(
             Claim.workspace_id == self._ws,
@@ -498,6 +506,11 @@ class GraphRepository:
         )
         if statuses:
             q = q.filter(Claim.status.in_(statuses))
+        if as_of is not None:
+            q = q.filter(
+                (Claim.valid_from.is_(None)) | (Claim.valid_from <= as_of),
+                (Claim.valid_to.is_(None)) | (Claim.valid_to > as_of),
+            )
         return q.order_by(Claim.created_at.desc()).all()
 
     def claims_for_viewer(
@@ -506,11 +519,12 @@ class GraphRepository:
         subject_id: str,
         principal: Principal,
         statuses: list[str] | None = None,
+        as_of: datetime | None = None,
     ) -> list[tuple[Claim, list[str]]]:
         """Return claims whose *entire* evidence set is visible to this viewer.
         """
         visible: list[tuple[Claim, list[str]]] = []
-        for claim in self.claims_for(subject_type, subject_id, statuses=statuses):
+        for claim in self.claims_for(subject_type, subject_id, statuses=statuses, as_of=as_of):
             evidence = list(claim.evidence_doc_ids or [])
             if not evidence:
                 continue
@@ -556,7 +570,26 @@ class GraphRepository:
         of those prefixes are retracted (used to clear LLM extraction without wiping
         structured_field ground truth). When None, every creator is cleared so a
         delete/tombstone removes all graph evidence keyed to this doc_id.
+
+        If the removed evidence document was private (not org_visible), facts are
+        retracted unless remaining quotes still cite remaining evidence docs —
+        prevents private-derived text becoming all-visible on public leftovers.
         """
+        removed_doc = self._session.get(Document, doc_id)
+        removed_was_private = removed_doc is not None and not removed_doc.org_visible
+
+        def _should_retract(remaining: list[str], remaining_quotes: list[dict]) -> bool:
+            if not remaining:
+                return True
+            if not removed_was_private:
+                return False
+            cited = {
+                str(quote.get("doc_id", ""))
+                for quote in remaining_quotes
+                if quote.get("doc_id")
+            }
+            return not (cited & set(remaining))
+
         relationships = (
             self._session.query(Relationship)
             .filter(
@@ -573,11 +606,12 @@ class GraphRepository:
             ):
                 continue
             remaining = [evidence for evidence in relationship.evidence_doc_ids if evidence != doc_id]
-            relationship.evidence_doc_ids = remaining
-            relationship.evidence_quotes = [
+            remaining_quotes = [
                 quote for quote in (relationship.evidence_quotes or []) if quote.get("doc_id") != doc_id
             ]
-            if not remaining:
+            relationship.evidence_doc_ids = remaining
+            relationship.evidence_quotes = remaining_quotes
+            if _should_retract(remaining, remaining_quotes):
                 transition_fact(
                     relationship,
                     FactStatus.retracted,
@@ -600,11 +634,12 @@ class GraphRepository:
             ):
                 continue
             remaining = [evidence for evidence in claim.evidence_doc_ids if evidence != doc_id]
-            claim.evidence_doc_ids = remaining
-            claim.evidence_quotes = [
+            remaining_quotes = [
                 quote for quote in (claim.evidence_quotes or []) if quote.get("doc_id") != doc_id
             ]
-            if not remaining:
+            claim.evidence_doc_ids = remaining
+            claim.evidence_quotes = remaining_quotes
+            if _should_retract(remaining, remaining_quotes):
                 transition_fact(
                     claim,
                     FactStatus.retracted,

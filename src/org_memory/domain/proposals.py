@@ -7,13 +7,15 @@ from datetime import UTC, datetime
 
 _EPOCH = datetime.min.replace(tzinfo=UTC)
 
-# Higher is better. Connector ground truth outranks multi-evidence extraction.
-PRECEDENCE_GROUND_TRUTH = 3
+# Higher is better. Connector ground truth outranks agent promote and extraction.
+PRECEDENCE_GROUND_TRUTH = 4
+PRECEDENCE_AGENT_PROMOTE = 3
 PRECEDENCE_EXTRACTION_MULTI = 2
 PRECEDENCE_EXTRACTION_SINGLE = 1
 
 PRECEDENCE_CLASS = {
     PRECEDENCE_GROUND_TRUTH: "ground_truth",
+    PRECEDENCE_AGENT_PROMOTE: "agent_promote",
     PRECEDENCE_EXTRACTION_MULTI: "extraction_multi",
     PRECEDENCE_EXTRACTION_SINGLE: "extraction_single",
 }
@@ -22,6 +24,8 @@ PRECEDENCE_CLASS = {
 def precedence_rank(*, created_by: str, evidence_count: int) -> int:
     if created_by.startswith("structured_field"):
         return PRECEDENCE_GROUND_TRUTH
+    if created_by.startswith("agent_promote"):
+        return PRECEDENCE_AGENT_PROMOTE
     if evidence_count >= 2:
         return PRECEDENCE_EXTRACTION_MULTI
     return PRECEDENCE_EXTRACTION_SINGLE

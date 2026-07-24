@@ -22,6 +22,7 @@ from org_memory.api import (
     routes_graph,
     routes_ingress,
     routes_procedural,
+    routes_promotions,
     routes_proposals,
     routes_search,
     routes_worldbuilder,
@@ -70,6 +71,7 @@ app.include_router(routes_facts.router)
 app.include_router(routes_proposals.router)
 app.include_router(routes_ingress.router)
 app.include_router(routes_procedural.router)
+app.include_router(routes_promotions.router)
 # Governance and ops.
 app.include_router(routes_graph.router)
 app.include_router(routes_collaboration.router)

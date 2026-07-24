@@ -15,6 +15,7 @@ def proposal_payload(row: TaxonomyProposal) -> dict:
         "proposal_id": row.proposal_id,
         "subject_type": row.subject_type,
         "subject_id": row.subject_id,
+        "host_entity_id": getattr(row, "host_entity_id", "") or None,
         "taxonomy_key": row.taxonomy_key,
         "field_key": row.field_key,
         "predicate": row.predicate,

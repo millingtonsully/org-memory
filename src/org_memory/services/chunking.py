@@ -2,7 +2,8 @@
 
 Children (~200 tokens) are embedded and ranked. Parents (~800 tokens) are
 stored unembedded; retrieval returns parent text for a matched child.
-Uses the embedding model's tokenizer (cl100k_base) for size and overlap.
+Token counts use tiktoken ``cl100k_base`` as an approximate ruler; this is
+not bound to the configured embedding model's tokenizer.
 """
 
 from __future__ import annotations

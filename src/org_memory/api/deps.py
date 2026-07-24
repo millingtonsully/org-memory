@@ -35,10 +35,6 @@ from org_memory.services.retrieval import RetrievalService
 from org_memory.services.worldbuilder import WorldbuilderService
 
 __all__ = [
-    "get_embedder",
-    "get_reranker",
-    "get_synthesizer",
-    "get_object_store",
     "require_api_key",
     "bind_principal",
     "bind_admin",

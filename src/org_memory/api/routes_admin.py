@@ -6,6 +6,8 @@ and spend. /healthz stays a cheap liveness probe. Administrator role required.
 
 from __future__ import annotations
 
+from typing import Literal
+
 import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -14,12 +16,12 @@ from sqlalchemy.orm import Session
 
 from org_memory.api.deps import (
     bind_admin,
-    get_object_store,
     get_session,
     require_api_key,
 )
 from org_memory.core.errors import NotFoundError
 from org_memory.core.settings import get_settings
+from org_memory.core.wiring import get_object_store
 from org_memory.db.orm import Job, utcnow
 from org_memory.db.repositories import (
     AuditRepository,
@@ -214,7 +216,12 @@ def spend_report(
 
 
 class PlaceHoldRequest(BaseModel):
-    scope_type: str = Field(description="'doc', 'source_system', or 'person'")
+    scope_type: Literal["doc", "source_system", "person"] = Field(
+        description=(
+            "doc: document doc_id; source_system: connector system id; "
+            "person: canonical person id (not email or source external id)."
+        )
+    )
     scope_value: str
     reason: str
 

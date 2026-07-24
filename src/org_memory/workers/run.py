@@ -31,6 +31,7 @@ from org_memory.workers.handlers import (
     handle_push_taxonomy_proposal_webhook,
     handle_refresh_identity_embedding,
     handle_resolve_claim_conflict,
+    handle_resolve_relationship_conflict,
 )
 
 logger = structlog.get_logger(__name__)
@@ -73,6 +74,11 @@ class Worker:
             ),
             JobType.resolve_claim_conflict: lambda session, job, jobs: handle_resolve_claim_conflict(
                 session, job.payload, self._synthesizer, heartbeat=lambda: jobs.heartbeat(job)
+            ),
+            JobType.resolve_relationship_conflict: lambda session, job, jobs: (
+                handle_resolve_relationship_conflict(
+                    session, job.payload, heartbeat=lambda: jobs.heartbeat(job)
+                )
             ),
             JobType.generate_taxonomy_proposals: lambda session, job, jobs: (
                 handle_generate_taxonomy_proposals(session, job.payload)

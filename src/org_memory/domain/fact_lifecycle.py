@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Protocol
 
+from org_memory.domain.proposals import precedence_rank
+
 
 class FactStatus(str, Enum):
     proposed = "proposed"
@@ -48,9 +50,8 @@ def transition_fact(row: FactRow, target: FactStatus, decided_by: str) -> None:
 # A subject can legitimately hold many values for one predicate (eg "member
 # of" many teams), so a same-predicate collision isn't automatically a
 # contradiction. Only a mutually exclusive predicate has a single current
-# value. That semantic judgement is made per-conflict by the adjudicator; once
-# a slot is known to be exclusive, the current winner is picked deterministically
-# by evidence recency, never by the model's guess about which is "right".
+# value. When a slot is exclusive, the winner is picked by precedence then
+# evidence recency — never by the model's guess about which is "right".
 _EPOCH = datetime.min.replace(tzinfo=UTC)
 
 
@@ -63,18 +64,24 @@ class ConflictCandidate:
     confidence: float
     latest_evidence_at: datetime | None
     updated_at: datetime
+    created_by: str = ""
+    evidence_count: int = 0
 
 
 def rank_conflict_candidates(candidates: list[ConflictCandidate]) -> list[ConflictCandidate]:
     """Order competing values so the current winner is first.
 
-    Recency of supporting evidence wins so the most recently attested value
-    is the current one. Confidence and last-write time break ties. Selection is
-    fully deterministic and independent of input order.
+    Precedence (structured_field > agent_promote > multi-evidence extraction >
+    single-evidence) wins first. Evidence recency, confidence, and claim_id
+    break ties. Selection is fully deterministic and independent of input order.
     """
     return sorted(
         candidates,
         key=lambda candidate: (
+            precedence_rank(
+                created_by=candidate.created_by,
+                evidence_count=candidate.evidence_count,
+            ),
             candidate.latest_evidence_at or _EPOCH,
             candidate.confidence,
             candidate.updated_at,

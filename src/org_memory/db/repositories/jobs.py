@@ -104,6 +104,24 @@ class JobRepository:
                     "predicate": predicate,
                 }
             )
+        elif job_type == JobType.resolve_relationship_conflict.value:
+            from_type = payload.get("from_type")
+            from_id = payload.get("from_id")
+            relationship_type = payload.get("relationship_type")
+            if not from_type or not from_id or not relationship_type:
+                return None
+            match_sql = (
+                "payload->>'from_type' = :from_type "
+                "AND payload->>'from_id' = :from_id "
+                "AND payload->>'relationship_type' = :relationship_type"
+            )
+            params.update(
+                {
+                    "from_type": from_type,
+                    "from_id": from_id,
+                    "relationship_type": relationship_type,
+                }
+            )
         elif job_type in (
             JobType.generate_taxonomy_proposals.value,
             JobType.aggregate_collaboration_edges.value,

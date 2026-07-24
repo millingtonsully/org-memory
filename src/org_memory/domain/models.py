@@ -199,6 +199,8 @@ class Passage(BaseModel):
     author_display_name: str
     event_time: datetime
     deep_link: str
+    source_system: str = ""
+    updated_at: datetime | None = None
     score: float = Field(description="final score after fusion and decay (and rerank when used)")
     rank_debug: dict = Field(
         default_factory=dict,
@@ -207,13 +209,17 @@ class Passage(BaseModel):
 
 
 class FactPassage(BaseModel):
-    """One active structured fact with currently visible provenance."""
+    """One structured fact with currently visible provenance."""
 
     fact_id: str
     fact_type: str
     text: str
     confidence: float
     evidence_doc_ids: list[str]
+    evidence_quotes: list[dict] = Field(default_factory=list)
+    status: str = "active"
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
     score: float
     rank_debug: dict = Field(default_factory=dict)
 

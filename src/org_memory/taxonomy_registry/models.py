@@ -14,11 +14,6 @@ class PlatformBinding(BaseModel):
     field_key: str = Field(min_length=1)
 
 
-class EntityTypeDef(BaseModel):
-    key: str = Field(min_length=1)
-    description: str = ""
-
-
 class PredicateDef(BaseModel):
     key: str = Field(min_length=1)
     subject_types: list[str] = Field(min_length=1)
@@ -44,7 +39,6 @@ class RelationshipTypeDef(BaseModel):
     to_types: list[str] = Field(min_length=1)
     mutually_exclusive: bool = False
     description: str = ""
-    platform_binding: PlatformBinding | None = None
 
     @field_validator("key", "from_types", "to_types", mode="before")
     @classmethod
@@ -57,8 +51,13 @@ class RelationshipTypeDef(BaseModel):
 
 
 class TaxonomyRegistryFile(BaseModel):
+    """One YAML file. Entity names are free-form at runtime; only predicates
+    and relationship_types are closed. Optional ``entity_types`` keys in YAML
+    are ignored (documentation only)."""
+
+    model_config = {"extra": "ignore"}
+
     version: int = Field(ge=1)
-    entity_types: list[EntityTypeDef] = Field(default_factory=list)
     predicates: list[PredicateDef] = Field(default_factory=list)
     relationship_types: list[RelationshipTypeDef] = Field(default_factory=list)
 
@@ -80,15 +79,10 @@ class TaxonomyRegistry:
 
     def __init__(self, files: list[TaxonomyRegistryFile]):
         self._files = files
-        self.entity_types: dict[str, EntityTypeDef] = {}
         self.predicates: dict[str, PredicateDef] = {}
         self.relationship_types: dict[str, RelationshipTypeDef] = {}
         self._structured_to_predicate: dict[str, PredicateDef] = {}
         for file in files:
-            for et in file.entity_types:
-                if et.key in self.entity_types:
-                    raise ValueError(f"duplicate entity_type key: {et.key}")
-                self.entity_types[et.key] = et
             for pred in file.predicates:
                 if pred.key in self.predicates:
                     raise ValueError(f"duplicate predicate key across files: {pred.key}")
@@ -100,7 +94,7 @@ class TaxonomyRegistry:
                     self._structured_to_predicate[normalized] = pred
             for rel in file.relationship_types:
                 if rel.key in self.relationship_types:
-                    raise ValueError(f"duplicate relationship_type across files: {rel.key}")
+                    raise ValueError(f"duplicate relationship_type key across files: {rel.key}")
                 self.relationship_types[rel.key] = rel
 
     def is_known_predicate(self, predicate: str) -> bool:
@@ -115,6 +109,13 @@ class TaxonomyRegistry:
         if pred is None:
             return None
         return pred.mutually_exclusive
+
+    def relationship_mutually_exclusive(self, relationship_type: str) -> bool | None:
+        """True/False when registry defines exclusivity; None if unknown."""
+        rel = self.relationship_types.get(relationship_type.strip().lower())
+        if rel is None:
+            return None
+        return rel.mutually_exclusive
 
     def ground_truth_predicate_for_structured_key(self, key: str) -> PredicateDef | None:
         return self._structured_to_predicate.get(key.strip())

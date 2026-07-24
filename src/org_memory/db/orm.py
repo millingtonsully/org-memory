@@ -181,7 +181,10 @@ class Relationship(Base):
 
 
 class Claim(Base):
-    """Extracted statement about a subject."""
+    """Extracted statement about a subject with a world-validity window.
+
+    Validity is half-open: valid_from <= as_of AND (valid_to IS NULL OR valid_to > as_of).
+    """
 
     __tablename__ = "claims"
 
@@ -191,6 +194,8 @@ class Claim(Base):
     subject_id: Mapped[str] = mapped_column(String, nullable=False)
     predicate: Mapped[str] = mapped_column(String, nullable=False)
     object_text: Mapped[str] = mapped_column(Text, nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     status: Mapped[str] = mapped_column(String, default="proposed")
     evidence_doc_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
@@ -411,7 +416,8 @@ class TaxonomyProposal(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     evidence_doc_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     source_claim_id: Mapped[str] = mapped_column(String, default="")
-    # ground_truth | extraction_multi | extraction_single
+    host_entity_id: Mapped[str] = mapped_column(String, default="")
+    # ground_truth | agent_promote | extraction_multi | extraction_single
     precedence_class: Mapped[str] = mapped_column(String, default="extraction_single")
     # pending | applied | rejected | superseded
     status: Mapped[str] = mapped_column(String, default="pending")
@@ -444,7 +450,7 @@ class Job(Base):
 
 
 class SpendEntry(Base):
-    """Token spend row for metering (no hard budget cap)."""
+    """Token spend row for metering. Monthly hard limit is enforced in SpendRepository."""
 
     __tablename__ = "spend_ledger"
 

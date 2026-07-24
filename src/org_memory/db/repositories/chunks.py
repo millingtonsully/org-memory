@@ -41,6 +41,7 @@ class ChunkSearchRepository:
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
+        source_system: str | None = None,
     ) -> list[CandidateHit]:
         query = sql(f"""
             SELECT {_SELECT_COLUMNS}
@@ -62,6 +63,7 @@ class ChunkSearchRepository:
             doc_id,
             author_person_ids,
             about_person_ids,
+            source_system,
         )
         params.update(
             {
@@ -87,6 +89,7 @@ class ChunkSearchRepository:
         doc_id: str | None = None,
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
+        source_system: str | None = None,
     ) -> list[CandidateHit]:
         """Lexical candidate channel for hybrid RRF."""
         query = sql(f"""
@@ -109,6 +112,7 @@ class ChunkSearchRepository:
             doc_id,
             author_person_ids,
             about_person_ids,
+            source_system,
         )
         params.update({"query_text": query_text, "limit": limit})
         rows = self._session.execute(query, params).fetchall()

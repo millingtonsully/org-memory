@@ -132,7 +132,11 @@ class TaxonomyProposalService:
         return summary
 
     def _evidence_docs_exist(self, doc_ids: list[str]) -> bool:
-        """ACL gate: every evidence doc must still exist and not be tombstoned."""
+        """Existence gate: every evidence doc must still exist and not be tombstoned.
+
+        This is not viewer ACL. Taxonomy proposal list/pull is a service-key ops
+        surface; the host applies under its own auth.
+        """
         rows = (
             self._session.query(Document.doc_id)
             .filter(

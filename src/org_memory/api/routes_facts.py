@@ -1,4 +1,4 @@
-"""Deterministic query_facts: active registry-backed claims, viewer-scoped."""
+"""Deterministic query_facts: registry-backed claims, viewer-scoped, temporal as_of."""
 
 from __future__ import annotations
 
@@ -26,11 +26,15 @@ class QueryFactsRequest(BaseModel):
     subject_id: str = Field(min_length=1)
     predicate: str | None = Field(
         default=None,
-        description="Registry predicate key; omit to return all active predicates for the subject.",
+        description="Registry predicate key; omit to return all matching predicates for the subject.",
     )
     as_of: datetime | None = Field(
         default=None,
-        description="Reserved for temporal validity; currently filters by claim updated_at when set.",
+        description=(
+            "World-time point. When set, returns active∪superseded claims whose "
+            "validity window contains as_of (half-open: valid_from <= as_of < valid_to). "
+            "When omitted, returns currently active open-interval claims."
+        ),
     )
     limit: int = Field(default=50, ge=1, le=200)
 
@@ -52,21 +56,29 @@ def query_facts(
     else:
         predicate = None
 
+    statuses = ["active", "superseded"] if body.as_of is not None else ["active"]
     graph = GraphRepository(session)
     rows = graph.claims_for_viewer(
         body.subject_type.strip().lower(),
         body.subject_id.strip(),
         principal,
-        statuses=["active"],
+        statuses=statuses,
+        as_of=body.as_of,
     )
     facts = []
+    truncated = False
     for claim, evidence_doc_ids in rows:
         if predicate is not None and claim.predicate != predicate:
             continue
         if not registry.is_known_predicate(claim.predicate):
             continue
-        if body.as_of is not None and claim.updated_at > body.as_of:
+        if body.as_of is None and claim.status != "active":
             continue
+        visible_quotes = [
+            quote
+            for quote in (claim.evidence_quotes or [])
+            if quote.get("doc_id") in set(evidence_doc_ids)
+        ]
         facts.append(
             {
                 "fact_id": claim.claim_id,
@@ -76,12 +88,16 @@ def query_facts(
                 "object": claim.object_text,
                 "confidence": claim.confidence,
                 "status": claim.status,
+                "valid_from": claim.valid_from.isoformat() if claim.valid_from else None,
+                "valid_to": claim.valid_to.isoformat() if claim.valid_to else None,
                 "evidence_doc_ids": evidence_doc_ids,
+                "evidence_quotes": visible_quotes,
                 "updated_at": claim.updated_at.isoformat(),
                 "platform_binding": _platform_binding(registry, claim.predicate),
             }
         )
         if len(facts) >= body.limit:
+            truncated = True
             break
 
     return {
@@ -90,5 +106,6 @@ def query_facts(
         "predicate": predicate,
         "as_of": body.as_of.isoformat() if body.as_of else None,
         "facts": facts,
-        "total": len(facts),
+        "returned": len(facts),
+        "truncated": truncated,
     }

@@ -74,10 +74,16 @@ def person_card(
                 "predicate": c.predicate,
                 "object": c.object_text,
                 "confidence": c.confidence,
+                "status": c.status,
+                "valid_from": c.valid_from.isoformat() if c.valid_from else None,
+                "valid_to": c.valid_to.isoformat() if c.valid_to else None,
                 "evidence_doc_ids": visible_doc_ids,
+                "evidence_quotes": [
+                    q for q in (c.evidence_quotes or []) if q.get("doc_id") in set(visible_doc_ids)
+                ],
             }
             for c, visible_doc_ids in graph.claims_for_viewer(
-                "person", canonical_id, principal, statuses=["active"]
+                "person", canonical_id, principal, statuses=["active"], as_of=as_of
             )
         ],
     }
@@ -136,10 +142,16 @@ def entity_card(
                 "predicate": c.predicate,
                 "object": c.object_text,
                 "confidence": c.confidence,
+                "status": c.status,
+                "valid_from": c.valid_from.isoformat() if c.valid_from else None,
+                "valid_to": c.valid_to.isoformat() if c.valid_to else None,
                 "evidence_doc_ids": evidence_ids,
+                "evidence_quotes": [
+                    q for q in (c.evidence_quotes or []) if q.get("doc_id") in set(evidence_ids)
+                ],
             }
             for c, evidence_ids in graph.claims_for_viewer(
-                entity.entity_type, entity_id, principal, statuses=["active"]
+                entity.entity_type, entity_id, principal, statuses=["active"], as_of=as_of
             )
         ],
     }

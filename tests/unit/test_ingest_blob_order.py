@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from org_memory.domain.models import ChangeEnvelope, ChangeKind
-from org_memory.services.ingest import IngestService
+from org_memory.services.ingest import IngestResult, IngestService
 
 USER_A = "user:11111111-1111-1111-1111-111111111111"
 _EVENT = datetime(2026, 7, 1, tzinfo=UTC)
@@ -50,7 +50,7 @@ def ingest_settings(monkeypatch):
 def test_put_runs_after_db_and_fails_closed(ingest_settings) -> None:
     store = RecordingStore(fail_put=True)
     svc = IngestService(session=MagicMock(), object_store=store, entity_resolution=MagicMock())
-    svc._apply_envelope = MagicMock(return_value="test:1")  # type: ignore[method-assign]
+    svc._apply_envelope = MagicMock(return_value=IngestResult(doc_id="test:1", status="accepted"))  # type: ignore[method-assign]
     envelope = ChangeEnvelope(
         source_system="test",
         external_id="1",
@@ -71,7 +71,7 @@ def test_put_runs_after_db_and_fails_closed(ingest_settings) -> None:
 def test_orphan_blob_deleted_when_post_put_step_fails(ingest_settings) -> None:
     store = RecordingStore()
     svc = IngestService(session=MagicMock(), object_store=store, entity_resolution=MagicMock())
-    svc._apply_envelope = MagicMock(return_value="test:1")  # type: ignore[method-assign]
+    svc._apply_envelope = MagicMock(return_value=IngestResult(doc_id="test:1", status="accepted"))  # type: ignore[method-assign]
     svc._on_blob_archived = MagicMock(side_effect=RuntimeError("commit barrier failed"))  # type: ignore[method-assign]
     envelope = ChangeEnvelope(
         source_system="test",

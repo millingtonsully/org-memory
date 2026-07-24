@@ -21,6 +21,7 @@ from org_memory.services.identity_merge import (
     corroborating_signals,
     normalize_email,
     reconcile_merged_identity_conflicts,
+    refresh_identity_metadata,
 )
 
 logger = structlog.get_logger(__name__)
@@ -191,20 +192,7 @@ class EntityResolutionService:
         return "\n".join(lines)
 
     def _refresh_identity_metadata(self, person: Person) -> None:
-        """Store only deterministic metadata derived from source aliases."""
-        aliases = self._persons.aliases_for(person.canonical_id)
-        person.identity_metadata = {
-            "sources": sorted({alias.source_system for alias in aliases}),
-            "alias_count": len(aliases),
-            "verified_email_count": sum(alias.email_verified for alias in aliases),
-            "verified_identifier_namespaces": sorted(
-                {
-                    alias.source_system.removeprefix("identity:")
-                    for alias in aliases
-                    if alias.source_system.startswith("identity:") and alias.external_id
-                }
-            ),
-        }
+        refresh_identity_metadata(self._session, person)
 
     @staticmethod
     def _normalize_email(value: str) -> str:
