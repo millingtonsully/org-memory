@@ -31,8 +31,12 @@ _CATEGORIES: tuple[WorldbuilderCategory, ...] = ("person", "team", "project", "g
 _PROFILE_JSON_SCHEMA_HINT = """
 Return ONLY valid JSON (no markdown) with this shape:
 {
-  "subject_descriptions": [{"text": str, "confidence": number 0-1, "evidence_doc_ids": [str], "source_record_ids": [str]}],
-  "org_work_context": [{"text": str, "confidence": number, "evidence_doc_ids": [str], "source_record_ids": [str]}],
+  "subject_descriptions": [
+    {"text": str, "confidence": number 0-1, "evidence_doc_ids": [str], "source_record_ids": [str]}
+  ],
+  "org_work_context": [
+    {"text": str, "confidence": number, "evidence_doc_ids": [str], "source_record_ids": [str]}
+  ],
   "vocabulary": [{"term": str, "note": str, "evidence_doc_ids": [str]}],
   "caveats": [str],
   "team_signals": [{"text": str, "confidence": number, "evidence_doc_ids": [str]}],

@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-
 from tests.postgres.helpers import make_doc
 
 pytestmark = pytest.mark.postgres
@@ -76,6 +75,8 @@ def test_list_category_four_types_and_acl(hermetic_workspace):
                 resolution_status="resolved",
             )
         )
+        # Flush person before FK children; ORM has no relationship() to order inserts.
+        session.flush()
         session.add(
             DocumentParticipant(
                 doc_id=public_id,
@@ -182,6 +183,7 @@ def test_resolve_about_person_vs_entity(hermetic_workspace):
                 display_name="Grace Hopper",
             )
         )
+        session.flush()
         session.add(
             DocumentParticipant(
                 doc_id=public_id,
@@ -441,6 +443,7 @@ def test_promote_autofills_platform_user_against_db(hermetic_workspace):
                 resolution_status="resolved",
             )
         )
+        session.flush()
         session.add(
             DocumentParticipant(
                 doc_id=doc_id,

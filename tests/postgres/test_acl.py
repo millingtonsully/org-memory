@@ -6,7 +6,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-
 from tests.postgres.helpers import make_doc
 
 pytestmark = pytest.mark.postgres
