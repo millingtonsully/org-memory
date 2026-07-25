@@ -20,7 +20,14 @@ class ConnectorStatusRepository:
     def _get_or_create(self, source_system: str) -> ConnectorStatus:
         status = self._session.get(ConnectorStatus, (self._ws, source_system))
         if status is None:
-            status = ConnectorStatus(workspace_id=self._ws, source_system=source_system)
+            status = ConnectorStatus(
+                workspace_id=self._ws,
+                source_system=source_system,
+                envelopes_total=0,
+                failures_total=0,
+                last_error="",
+                recent_errors=[],
+            )
             self._session.add(status)
         return status
 
@@ -28,13 +35,13 @@ class ConnectorStatusRepository:
         status = self._get_or_create(source_system)
         status.last_envelope_at = utcnow()
         status.last_event_time = event_time
-        status.envelopes_total += 1
+        status.envelopes_total = int(status.envelopes_total or 0) + 1
         status.updated_at = utcnow()
 
     def record_failure(self, source_system: str, error: str) -> None:
         status = self._get_or_create(source_system)
         now = utcnow()
-        status.failures_total += 1
+        status.failures_total = int(status.failures_total or 0) + 1
         status.last_error = error[:4000]
         status.last_failure_at = now
         sample = {"at": now.isoformat(), "error": error[:1000]}

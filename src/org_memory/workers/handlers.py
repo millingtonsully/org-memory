@@ -35,6 +35,17 @@ from org_memory.services.identity_merge import (
 logger = structlog.get_logger(__name__)
 
 
+def _assert_spend_under_hard_limit() -> None:
+    """Enforce the monthly cap in a short-lived transaction.
+
+    ``pg_advisory_xact_lock`` is held until commit. Calling it on the long-lived
+    job session, then recording spend in a nested ``session_scope``, deadlocks
+    the worker against itself (statement timeout → job never commits as running).
+    """
+    with session_scope() as spend_session:
+        SpendRepository(spend_session).assert_under_hard_limit()
+
+
 def handle_embed_chunks(session: Session, payload: dict, embedder: Embedder, heartbeat=None) -> None:
     doc_id = payload["doc_id"]
     doc = session.get(Document, doc_id)
@@ -113,7 +124,7 @@ def handle_extract_graph(
             current_hash=current_hash,
         )
         return
-    SpendRepository(session).assert_under_hard_limit()
+    _assert_spend_under_hard_limit()
     service = ExtractionService(session, synthesizer, embedder)
     service.extract_for_document(doc, heartbeat=heartbeat)
 
@@ -195,7 +206,7 @@ def handle_adjudicate_persons(session: Session, payload: dict, synthesizer, hear
     person_ids = sorted({payload["person_a"], payload["person_b"]})
     if len(person_ids) != 2:
         return
-    SpendRepository(session).assert_under_hard_limit()
+    _assert_spend_under_hard_limit()
     if heartbeat is not None:
         heartbeat()
     locked_people = (
@@ -404,7 +415,7 @@ def handle_resolve_claim_conflict(session: Session, payload: dict, synthesizer, 
     subject_type = payload["subject_type"]
     subject_id = payload["subject_id"]
     predicate = payload["predicate"]
-    SpendRepository(session).assert_under_hard_limit()
+    _assert_spend_under_hard_limit()
     if heartbeat is not None:
         heartbeat()
     graph = GraphRepository(session)
@@ -660,7 +671,7 @@ def handle_refresh_identity_embedding(
     person_id = payload.get("person_id")
     if not person_id:
         return
-    SpendRepository(session).assert_under_hard_limit()
+    _assert_spend_under_hard_limit()
     if heartbeat is not None:
         heartbeat()
     person = session.get(Person, person_id)

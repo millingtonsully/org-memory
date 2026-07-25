@@ -28,7 +28,11 @@ def _document_visibility_filters_sql(alias: str = "d") -> str:
         AND (CAST(:source_system AS text) IS NULL OR {a}.source_system = :source_system)
         AND (
             CAST(:author_patterns AS text[]) IS NULL
-            OR {a}.author_display_name ILIKE ANY(CAST(:author_patterns AS text[])) ESCAPE E'\\\\'
+            OR EXISTS (
+                SELECT 1
+                FROM unnest(CAST(:author_patterns AS text[])) AS pat(pattern)
+                WHERE {a}.author_display_name ILIKE pat.pattern ESCAPE E'\\\\'
+            )
         )
         AND (
             CAST(:author_person_ids AS text[]) IS NULL
@@ -75,8 +79,14 @@ def _common_filters_sql() -> str:
         AND (d.org_visible = true OR d.allowed_principals && :viewer_principals)
         AND (CAST(:source_type AS text) IS NULL OR c.source_type = :source_type)
         AND (CAST(:source_system AS text) IS NULL OR d.source_system = :source_system)
-        AND (CAST(:author_patterns AS text[]) IS NULL
-             OR c.author_display_name ILIKE ANY(CAST(:author_patterns AS text[])) ESCAPE E'\\\\')
+        AND (
+            CAST(:author_patterns AS text[]) IS NULL
+            OR EXISTS (
+                SELECT 1
+                FROM unnest(CAST(:author_patterns AS text[])) AS pat(pattern)
+                WHERE c.author_display_name ILIKE pat.pattern ESCAPE E'\\\\'
+            )
+        )
         AND (
             CAST(:author_person_ids AS text[]) IS NULL
             OR EXISTS (
