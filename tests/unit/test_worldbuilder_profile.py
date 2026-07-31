@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from org_memory.services.worldbuilder import (
-    _ensure_structured_from_graph,
-    _ground_structured_profile,
-    _parse_structured_profile,
+from org_memory.services.worldbuilder.profile_structure import (
+    ensure_structured_from_graph,
+    ground_structured_profile,
+    parse_structured_profile,
 )
 
 
-def test_parse_structured_profile_json() -> None:
+def testparse_structured_profile_json() -> None:
     raw = """
     {
       "subject_descriptions": [{"text": "Eng", "confidence": 0.9, "evidence_doc_ids": ["d1"]}],
@@ -22,20 +22,20 @@ def test_parse_structured_profile_json() -> None:
       "profile_prose": "Eng on Payments"
     }
     """
-    parsed, ok = _parse_structured_profile(raw)
+    parsed, ok = parse_structured_profile(raw)
     assert ok is True
     assert parsed["profile_prose"] == "Eng on Payments"
     assert parsed["subject_descriptions"][0]["text"] == "Eng"
 
 
-def test_parse_structured_profile_invalid_is_prose_only_scaffold() -> None:
-    parsed, ok = _parse_structured_profile("not json at all")
+def testparse_structured_profile_invalid_is_prose_only_scaffold() -> None:
+    parsed, ok = parse_structured_profile("not json at all")
     assert ok is False
     assert parsed["profile_prose"] == "not json at all"
     assert parsed["subject_descriptions"] == []
 
 
-def test_ground_structured_profile_filters_unknown_ids() -> None:
+def testground_structured_profile_filters_unknown_ids() -> None:
     structured = {
         "subject_descriptions": [
             {
@@ -51,7 +51,7 @@ def test_ground_structured_profile_filters_unknown_ids() -> None:
         "team_signals": [],
         "profile_prose": "summary",
     }
-    grounded = _ground_structured_profile(
+    grounded = ground_structured_profile(
         structured,
         allowed_doc_ids={"doc:ok"},
         allowed_record_ids={"claim:ok"},
@@ -62,7 +62,7 @@ def test_ground_structured_profile_filters_unknown_ids() -> None:
 
 
 def test_invalid_json_seeds_structured_fields_from_graph() -> None:
-    structured, ok = _parse_structured_profile("raw prose failure")
+    structured, ok = parse_structured_profile("raw prose failure")
     assert ok is False
     claim = SimpleNamespace(
         claim_id="claim:1",
@@ -79,7 +79,7 @@ def test_invalid_json_seeds_structured_fields_from_graph() -> None:
         relationship_type="member_of",
         confidence=0.8,
     )
-    source = _ensure_structured_from_graph(
+    source = ensure_structured_from_graph(
         structured,
         claims=[(claim, ["doc:1"])],
         relationships=[(rel, ["doc:1"])],
@@ -110,7 +110,7 @@ def test_definition_claim_seeds_vocabulary_with_display_name() -> None:
         object_text="Internal care unit roster",
         confidence=1.0,
     )
-    source = _ensure_structured_from_graph(
+    source = ensure_structured_from_graph(
         structured,
         claims=[(claim, ["doc:g"])],
         relationships=[],
@@ -153,7 +153,7 @@ def test_model_fields_preserved_when_seeding_empty_buckets() -> None:
         relationship_type="member_of",
         confidence=0.8,
     )
-    source = _ensure_structured_from_graph(
+    source = ensure_structured_from_graph(
         structured,
         claims=[(claim, ["doc:1"])],
         relationships=[(rel, ["doc:1"])],
