@@ -245,7 +245,9 @@ class RetrievalService:
                         min_decay=settings.fact_freshness_min_decay,
                     )
 
-        shortlist_ids = sorted(decayed, key=lambda iid: decayed[iid], reverse=True)[:candidate_pool]
+        # Score descending, then item id ascending. The id tie-break keeps result
+        # order reproducible when two candidates score identically.
+        shortlist_ids = sorted(decayed, key=lambda iid: (-decayed[iid], iid))[:candidate_pool]
         if len(shortlist_ids) <= limit:
             final_ids = shortlist_ids[:limit]
             score_by_id = {item_id: decayed[item_id] for item_id in final_ids}
@@ -268,7 +270,7 @@ class RetrievalService:
             final_ids = [
                 item_id
                 for item_id, _ in sorted(
-                    score_by_id.items(), key=lambda item: item[1], reverse=True
+                    score_by_id.items(), key=lambda item: (-item[1], item[0])
                 )[:limit]
             ]
             did_rerank = True
