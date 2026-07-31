@@ -14,12 +14,12 @@ from org_memory.core.settings import get_settings
 from org_memory.db.engine import session_scope
 from org_memory.db.orm import Person, PersonAlias, utcnow
 from org_memory.db.repositories import JobRepository, PersonRepository, SpendRepository
+from org_memory.domain.emails import normalize_email
 from org_memory.domain.jobs import JobType
 from org_memory.domain.models import IdentityEmail, IdentityKind, SourceIdentity
 from org_memory.ports.embedder import Embedder
 from org_memory.services.identity_merge import (
     corroborating_signals,
-    normalize_email,
     reconcile_merged_identity_conflicts,
     refresh_identity_metadata,
 )

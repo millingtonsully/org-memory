@@ -17,6 +17,19 @@ from org_memory.db.orm import (
     utcnow,
 )
 from org_memory.db.repositories import PersonMergeDecisionRepository, PersonRepository
+from org_memory.domain.emails import normalize_email
+
+__all__ = [
+    "corroborating_signals",
+    "hard_identity_conflicts",
+    "has_sufficient_corroboration",
+    "identity_fingerprint",
+    "merge_people",
+    "normalize_email",
+    "reconcile_merged_identity_conflicts",
+    "refresh_identity_metadata",
+    "split_person",
+]
 
 
 def _normalized_name(value: str) -> str:
@@ -139,19 +152,6 @@ def has_sufficient_corroboration(signals: list[str]) -> bool:
     """Require a shared name plus a shared email address."""
     observed = set(signals)
     return "shared_normalized_name" in observed and "shared_email_address" in observed
-
-
-def normalize_email(value: str) -> str:
-    cleaned = value.strip().casefold()
-    if "@" not in cleaned:
-        return cleaned
-    local, _, domain = cleaned.partition("@")
-    if "+" in local:
-        local = local.split("+", 1)[0]
-    if domain in {"gmail.com", "googlemail.com"}:
-        local = local.replace(".", "")
-        domain = "gmail.com"
-    return f"{local}@{domain}"
 
 
 def refresh_identity_metadata(session: Session, person: Person) -> None:

@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Person and alias queries scoped to the configured workspace."""
 
 from __future__ import annotations
 
@@ -16,6 +15,7 @@ from org_memory.db.orm import (
     Person,
     PersonAlias,
 )
+from org_memory.domain.emails import normalize_email
 from org_memory.domain.models import Principal
 
 
@@ -35,8 +35,6 @@ class PersonRepository:
     def find_by_verified_email(self, email: str) -> Person | None:
         if not email:
             return None
-        from org_memory.services.identity_merge import normalize_email
-
         normalized = normalize_email(email)
         alias = (
             self._session.query(PersonAlias)
