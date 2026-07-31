@@ -5,8 +5,52 @@ on:
     branches: [main, master]
   pull_request:
 
+# A newer push to the same branch cancels the stale run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev,s3]"
+      - name: Ruff
+        run: ruff check src tests
+      - name: Mypy
+        run: mypy src
+      - name: Single Alembic revision guard
+        # The project keeps one squashed schema revision. A second file means
+        # someone started a migration chain, which this repository forbids.
+        run: |
+          count=$(ls alembic/versions/*.py | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "Expected exactly one Alembic revision, found $count"
+            exit 1
+          fi
+      - name: Unit tests with coverage
+        run: pytest -m "not integration and not postgres" -q --cov --cov-report=term --cov-report=xml
+      - name: Upload coverage report
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,13 +59,9 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install
-        run: pip install -e ".[dev,s3]"
-      - name: Ruff
-        run: ruff check src tests
-      - name: Mypy
-        run: mypy src
-      - name: Unit tests
-        run: pytest -m "not integration and not postgres" -q
+        run: pip install -e ".[s3]" pip-audit
+      - name: Audit dependencies for known vulnerabilities
+        run: pip-audit --skip-editable
 
   postgres:
     runs-on: ubuntu-latest
@@ -61,5 +101,31 @@ jobs:
         run: pip install -e ".[dev,s3]"
       - name: Migrate
         run: alembic upgrade head
+      - name: Migration is idempotent at head
+        run: alembic upgrade head
       - name: Postgres tests
         run: pytest -m postgres -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t org-memory:ci .
+      - name: Image starts and fails fast without configuration
+        # Settings validate at import; the container must exit nonzero and name
+        # the missing configuration instead of serving unconfigured.
+        run: |
+          set +e
+          output=$(docker run --rm org-memory:ci 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          if [ "$status" -eq 0 ]; then
+            echo "Container unexpectedly started without required settings"
+            exit 1
+          fi
+          echo "$output" | grep -qi "configuration" || {
+            echo "Expected a configuration error message"
+            exit 1
+          }
