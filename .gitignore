@@ -23,13 +23,5 @@ htmlcov/
 .vscode/
 .cursor/
 
-# Local container scaffolding (not used; do not re-add)
-Dockerfile
-Dockerfile.*
-docker-compose.yml
-docker-compose.yaml
-compose.yml
-compose.yaml
-docs/
-
+# Local data volumes
 .data/
