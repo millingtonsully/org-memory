@@ -8,7 +8,9 @@ External sync workers push structured change events into an ingress API. Tools c
 
 ## How it works
 
-The API accepts ChangeEnvelope JSON (the ingest contract for one content change). It archives the raw payload, writes documents and parent/child text chunks into Postgres, and enqueues background jobs for embeddings and graph extraction. When someone searches, the service embeds the query, fetches vector and keyword candidates under access-control filters, merges those ranked lists with reciprocal rank fusion, then reranks with a cross-encoder when the shortlist is larger than the requested limit. A separate worker process drains the job queue. Ingest defers embed/extract vendor calls to the worker; search, Worldbuilder synthesis, and procedural create/search call vendors on the HTTP request path.
+The API accepts ChangeEnvelope JSON (the ingest contract for one content change). It archives the raw payload, writes documents and parent/child text chunks into Postgres, and enqueues background jobs for embeddings and graph extraction. Every chunk stores a hash of its text, so re-ingesting a document only re-embeds the chunks whose text actually changed; unchanged chunks keep their stored vectors. When someone searches, the service embeds the query, fetches vector and keyword candidates under access-control filters, merges those ranked lists with reciprocal rank fusion, then reranks with a cross-encoder when the shortlist is larger than the requested limit. A separate worker process drains the job queue. Ingest defers embed/extract vendor calls to the worker; search, Worldbuilder synthesis, and procedural create/search call vendors on the HTTP request path.
+
+Facts in the graph are bi-temporal: each claim and relationship records when it was true in the world (`valid_from` / `valid_to`) and when the system believed it (`recorded_at` / `invalidated_at`). `query_facts` accepts `as_of` and `believed_as_of` points for both axes. See `docs/temporal-model.md` for the full model.
 
 ---
 
@@ -20,12 +22,12 @@ The API accepts ChangeEnvelope JSON (the ingest contract for one content change)
 | Package              | Role                                                                |
 | -------------------- | ------------------------------------------------------------------- |
 | `api/`               | HTTP routes, auth dependencies, tool wire shapes                    |
-| `services/`          | Ingest, retrieval, extraction, worldbuilder, proposals, retention   |
+| `services/`          | Ingest, retrieval, extraction, worldbuilder package, proposals, retention |
 | `db/`                | SQLAlchemy engine, ORM models, repositories with ACL in SQL         |
-| `domain/`            | Pure models, principals, fact lifecycle, job type names             |
+| `domain/`            | Pure models, principals, emails, fact lifecycle, job type names     |
 | `adapters/`          | HTTP embedder, reranker, synthesizer, Supabase Storage, S3          |
 | `ports/`             | Protocols for object store, embedder, reranker, chunk search        |
-| `workers/`           | Job poll loop and handlers                                          |
+| `workers/`           | Job poll loop; handlers live under `workers/handlers/` by concern   |
 | `core/`              | Settings, wiring, errors, metrics, logging                          |
 | `taxonomy_registry/` | Closed JSON Schema knowledge ontology (types, predicates, bindings) |
 
@@ -33,6 +35,10 @@ The API accepts ChangeEnvelope JSON (the ingest contract for one content change)
 **Contracts** are under `contracts/`. The ChangeEnvelope JSON Schema is the ingest contract. The knowledge ontology meta-schema is `contracts/taxonomy_registry.schema.json`; live instances live under `config/taxonomy_registry/` (see `knowledge_ontology.json`). Tool request schemas live under `contracts/tools/`.
 
 **Database schema** lives in a single Alembic revision: `alembic/versions/0001_initial_schema.py`. On a new database, run `alembic upgrade head`. Schema changes are edited into that file in place; this project does not keep a chain of numbered migrations.
+
+**Temporal model** for claims and relationships is documented in `docs/temporal-model.md`.
+
+Agent tools today are separate primitives: `search_knowledge_base` / `worldbuilder_kb` for passages, `query_facts` for structured claims, and `query_paths` for relationship traversal. Compose them in the host or agent until a unified retrieve tool exists.
 
 ---
 
@@ -77,9 +83,9 @@ Access control for graph objects uses two rules, depending on the object type.
 
 **Facts, entities, claims, and relationships** use all-visible: every document currently listed as evidence for that object must be visible to the viewer. If a claim is backed by one public doc and one private doc, only a viewer who can see both documents gets the claim text or the entity description. Graph reads return only objects whose full evidence set the viewer can see.
 
-### Jobs (`db/repositories/jobs.py`, `workers/run.py`)
+### Jobs (`db/repositories/jobs.py`, `workers/run.py`, `workers/handlers/`)
 
-Background work is a Postgres job queue. Workers claim the next open row with `FOR UPDATE SKIP LOCKED`, which gives each job to exactly one worker. Enqueue keeps at most one open job of the same type and key (for example one open `embed_chunks` job per document), so repeating the enqueue doesn't create duplicates. When a worker claims a job, the query also filters by `workspace_id` from settings so each process only takes work for its configured workspace.
+Background work is a Postgres job queue. Workers claim the next open row with `FOR UPDATE SKIP LOCKED`, which gives each job to exactly one worker. Enqueue keeps at most one open job of the same type and key (for example one open `embed_chunks` job per document), so repeating the enqueue doesn't create duplicates. When a worker claims a job, the query also filters by `workspace_id` from settings so each process only takes work for its configured workspace. Handler modules under `workers/handlers/` cover embedding, graph extraction, identity adjudication, conflict resolution, taxonomy proposals, and collaboration aggregation.
 
 ### Object store ports (`ports/object_store.py`, adapters)
 
@@ -102,7 +108,7 @@ Search is hybrid: **pgvector + Postgres full-text search (**`ts_rank`**)**, then
 - **Dense (pgvector):** Embed the query, find nearby chunk vectors (meaning / paraphrase match).
 - **Lexical (current):** Match query words against chunk text with Postgres FTS ordered by `ts_rank`, with ACL in the same SQL `WHERE` clause. One database, one index to keep in sync with documents. That's why this path is simple to operate on Supabase.
 
-**BM25:** A stronger lexical scorer than `ts_rank`, but stock Postgres / managed Supabase do not expose in-database BM25. This repo ships **pgvector +** `ts_rank`. Upgrading lexical ranking later means swapping the keyword SQL (or the `ChunkSearch` port) to a BM25-capable Postgres extension — not a second app-side index.
+**BM25:** A stronger lexical scorer than `ts_rank`. Stock Postgres and managed Supabase expose full-text search with `ts_rank`, so this repo ships **pgvector +** `ts_rank`. Upgrading lexical ranking later means swapping the keyword SQL (or the `ChunkSearch` port) to a BM25-capable Postgres extension; everything else in the pipeline stays the same.
 
 **Location in code:** Lexical ranking is `ChunkSearchRepository.keyword_candidates` (FTS/`ts_rank`). Dense ranking is the vector candidate query in the same repository. Retrieval consumes ranked hits from those methods.
 
@@ -110,22 +116,20 @@ Search is hybrid: **pgvector + Postgres full-text search (**`ts_rank`**)**, then
 
 ## Setup
 
-Credentials
+Copy `.env.example` to `.env` and fill in the required values. The process refuses to start when a required setting is missing or invalid, and the error names the setting.
 
-```
-WORKSPACE_ID=
-DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/DBNAME
-SERVICE_API_KEY=
-EMBEDDING_API_KEY=
-EMBEDDING_API_URL=https://api.openai.com/v1
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536
-RERANK_API_KEY=
-RERANK_API_URL=https://api.voyageai.com/v1
-RERANK_MODEL=rerank-2.5
+### Docker (recommended)
+
+The compose file runs the full stack: Postgres with pgvector, a one-shot migration container, the API, and the worker.
+
+```bash
+cp .env.example .env   # fill in real keys
+docker compose up --build
 ```
 
-Then:
+The API listens on `http://localhost:8000`. The `migrate` service applies the single Alembic revision and exits; the API and worker wait for it.
+
+### Local Python
 
 ```bash
 python -m venv .venv
@@ -146,15 +150,16 @@ Health:
 Tests:
 
 ```bash
-pytest -m "not integration and not postgres"
-pytest -m postgres   # needs DATABASE_URL
+pytest -m "not integration and not postgres"          # unit tests, no services
+pytest -m "not integration and not postgres" --cov    # with coverage
+pytest -m postgres                                    # hermetic SQL tests; needs DATABASE_URL
 ```
 
 ---
 
 ## Integration into production
 
-This section is for connecting organizational memory to a host agent platform. Org Memory is the replacement for Databricks-backed knowledge-base search. Agent core tool calls(`search_knowledge_base`, `worldbuilder_kb`, `worldbuilder_lookup`) go to this service instead of Databricks.
+This section is for connecting organizational memory to a host agent platform. Org Memory is the replacement for Databricks-backed knowledge-base search. Agent core tool calls (`search_knowledge_base`, `worldbuilder_kb`, `worldbuilder_lookup`) go to this service instead of Databricks.
 
 ### How data moves in
 
@@ -177,7 +182,7 @@ Send a verified ChangeEnvelope identity key with `namespace: "platform_user"` an
 
 ### How structured fields write back
 
-Org Memory emits **field-value** proposals (not new ontology types) on `GET /v1/taxonomy-proposals` and pushes them when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set (blank URL means pull-only). Use this path for knowledge fields (title, manager, team). Operational workflow/task mutations stay on the host.
+Org Memory emits **field-value** proposals for existing ontology fields on `GET /v1/taxonomy-proposals` and pushes them when `TAXONOMY_PROPOSAL_WEBHOOK_URL` is set (blank URL means pull-only). Use this path for knowledge fields (title, manager, team). Operational workflow/task mutations stay on the host.
 
 Proposals bind registry predicates that declare a `platform_binding`. They do not create new host entity types or fields. Bindings come from `config/taxonomy_registry/knowledge_ontology.json`.
 
