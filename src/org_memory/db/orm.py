@@ -89,6 +89,10 @@ class Chunk(Base):
 
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # SHA-256 of the chunk text. When a document is re-ingested, chunks whose
+    # hash is unchanged keep their stored embedding instead of being re-embedded.
+    content_hash: Mapped[str] = mapped_column(String, nullable=False, default="")
+
     # Filled by the embed worker; vector search filters on model name
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String, nullable=True)

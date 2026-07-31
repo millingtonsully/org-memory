@@ -55,6 +55,16 @@ def make_doc_id(source_system: str, external_id: str) -> str:
     return f"{source_system}:{external_id}"
 
 
+def chunk_content_hash(text: str) -> str:
+    """SHA-256 over the exact text a chunk stores (and, for children, embeds).
+
+    The hash keys embedding reuse across re-ingests, so it must cover every byte
+    that influences the vector and nothing else. Metadata such as ACL or deep
+    links stays out: changing those must never force a re-embed.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 class IngestService:
     def __init__(
         self,
@@ -192,6 +202,7 @@ class IngestService:
                         chunk_role="parent",
                         parent_chunk_id=None,
                         text=parent.text,
+                        content_hash=chunk_content_hash(parent.text),
                         embedding=None,
                         embedding_model=None,
                         source_type=envelope.source_type,
@@ -215,6 +226,7 @@ class IngestService:
                             chunk_role="child",
                             parent_chunk_id=parent_id,
                             text=child.text,
+                            content_hash=chunk_content_hash(child.text),
                             embedding=None,
                             embedding_model=None,
                             source_type=envelope.source_type,
@@ -228,10 +240,16 @@ class IngestService:
                             deleted=False,
                         )
                     )
-            self._docs.replace_chunks(doc_id, chunks)
+            carried = self._docs.replace_chunks(
+                doc_id,
+                chunks,
+                reuse_embeddings_for_model=get_settings().embedding_model,
+            )
             child_count = sum(1 for c in chunks if c.chunk_role == "child")
             chunk_count = child_count
-            if child_count:
+            if child_count > carried:
+                # At least one child has no embedding yet. The worker embeds only
+                # rows where embedding IS NULL, so carried-over chunks cost nothing.
                 self._jobs.enqueue(
                     JobType.embed_chunks,
                     {
@@ -239,6 +257,8 @@ class IngestService:
                         "content_hash": hashlib.sha256(envelope.text.encode("utf-8")).hexdigest(),
                     },
                 )
+            elif carried:
+                logger.info("ingest.embeddings_carried_over", doc_id=doc_id, carried=carried)
         else:
             self._docs.sync_chunk_metadata(
                 doc_id,

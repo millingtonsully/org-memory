@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Document and chunk persistence: upserts, tombstones, ACL sync, chunk replace."""
 
 from __future__ import annotations
 
@@ -114,16 +113,58 @@ class DocumentRepository:
             },
         )
 
-    def replace_chunks(self, doc_id: str, chunks: list[Chunk]) -> None:
-        """Replace live chunks for a document. History is in blobs and document_versions."""
+    def replace_chunks(
+        self,
+        doc_id: str,
+        chunks: list[Chunk],
+        *,
+        reuse_embeddings_for_model: str | None = None,
+    ) -> int:
+        """Replace live chunks for a document. History is in blobs and document_versions.
+
+        When ``reuse_embeddings_for_model`` names the active embedding model, child
+        chunks whose ``content_hash`` matches an outgoing embedded child under the
+        same model keep that embedding. An edit to one section then re-embeds only
+        the sections whose text changed. Returns the number of embeddings carried
+        over.
+
+        Reuse is keyed on the exact chunk text hash and the exact model name, so a
+        carried-over vector is byte-for-byte what re-embedding would produce. A
+        model change never reuses vectors from the previous model.
+        """
+        carried_embeddings: dict[str, tuple[list[float], str]] = {}
+        if reuse_embeddings_for_model:
+            outgoing = (
+                self._session.query(Chunk.content_hash, Chunk.embedding, Chunk.embedding_model)
+                .filter(
+                    Chunk.doc_id == doc_id,
+                    Chunk.chunk_role == "child",
+                    Chunk.embedding.isnot(None),
+                    Chunk.embedding_model == reuse_embeddings_for_model,
+                    Chunk.content_hash != "",
+                )
+                .all()
+            )
+            carried_embeddings = {
+                row.content_hash: (row.embedding, row.embedding_model) for row in outgoing
+            }
+
         # Clear child→parent links first so a bulk delete does not trip the self-FK.
         self._session.execute(
             sql("UPDATE chunks SET parent_chunk_id = NULL WHERE doc_id = :doc_id"),
             {"doc_id": doc_id},
         )
         self._session.execute(sql("DELETE FROM chunks WHERE doc_id = :doc_id"), {"doc_id": doc_id})
+
+        carried = 0
         for chunk in chunks:
+            if chunk.chunk_role == "child" and chunk.embedding is None:
+                reusable = carried_embeddings.get(chunk.content_hash)
+                if reusable is not None:
+                    chunk.embedding, chunk.embedding_model = reusable
+                    carried += 1
             self._session.add(chunk)
+        return carried
 
     def sync_chunk_metadata(
         self,

@@ -54,6 +54,7 @@ def upgrade() -> None:
             chunk_role           text NOT NULL DEFAULT 'child',
             parent_chunk_id      text REFERENCES chunks (chunk_id),
             text                 text NOT NULL,
+            content_hash         text NOT NULL DEFAULT '',
             embedding            vector(1536),
             embedding_model      text,
             source_type          text NOT NULL,
