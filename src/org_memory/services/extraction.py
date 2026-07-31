@@ -312,7 +312,7 @@ class ExtractionService:
             if not entity_type or not name:
                 continue
             if entity_type == "person":
-                # People are bound via identity resolution, not free entity upsert.
+                # People are bound through identity resolution only.
                 summary["skipped_mentions"] += 1
                 continue
             if not registry.is_known_entity_type(entity_type):

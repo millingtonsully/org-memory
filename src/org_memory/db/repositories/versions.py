@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Document version history: one row per accepted content change."""
 
 from __future__ import annotations
 

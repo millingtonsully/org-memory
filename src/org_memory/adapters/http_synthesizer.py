@@ -38,8 +38,8 @@ class HttpSynthesizer:
         """Return (text, tokens_used). Raises VendorAPIError on failure.
 
         When json_object=True, request OpenAI-compatible response_format json_object.
-        If the vendor rejects that parameter (HTTP 400), retry once without it —
-        that is capability detection, not invented content.
+        If the vendor rejects that parameter (HTTP 400), retry once without it.
+        The retry only drops the format hint; prompt and output pass through unchanged.
         """
         return self._complete(
             system_prompt, user_prompt, json_object=json_object, allow_format_retry=True

@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Synthesis traces: audit rows for LLM outputs and evidence-keyed cache lookups."""
 
 from __future__ import annotations
 

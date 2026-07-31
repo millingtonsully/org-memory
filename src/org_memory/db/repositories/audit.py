@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Retrieval audit rows: who searched, with what query, and what came back."""
 
 from __future__ import annotations
 

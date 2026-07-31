@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     #    email address (see has_sufficient_corroboration).
     # Name similarity or LLM confidence alone must never auto-merge. That
     # blocks false merges of different people with the same display name.
-    # Unsure / same-without-email cases stay as decisions for review, not merges.
+    # Unsure and same-without-email cases stay recorded as decisions for review.
     identity_candidate_similarity: float = 0.88
     identity_candidate_limit: int = 3
     identity_merge_confidence: float = 0.95

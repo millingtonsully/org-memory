@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Person merge decisions: durable verdicts keyed by identity evidence fingerprint."""
 
 from __future__ import annotations
 

@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Graph reads and writes: entities, claims, relationships, viewer-scoped ACL."""
 
 from __future__ import annotations
 
@@ -536,7 +535,7 @@ class GraphRepository:
         *,
         valid_to: datetime | None = None,
     ) -> None:
-        """Retire a losing claim in a mutually-exclusive slot (retained, not deleted)."""
+        """Retire a losing claim in a mutually-exclusive slot. The row stays for audit."""
         winner = self._session.get(Claim, superseded_by_claim_id)
         close_at = valid_to
         if close_at is None and winner is not None:

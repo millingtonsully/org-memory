@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Procedural memory rows: stored how-to knowledge with embeddings and ACL."""
 
 from __future__ import annotations
 

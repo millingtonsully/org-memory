@@ -80,10 +80,10 @@ class ChangeEnvelope(BaseModel):
     envelope upserts instead of creating a duplicate.
     """
 
-    source_system: str = Field(description="Opaque connector/system id (free string, not an enum).")
+    source_system: str = Field(description="Opaque connector/system id. Any free string is accepted.")
     external_id: str = Field(description="the source tool's own id for this object")
     change_kind: ChangeKind
-    source_type: str = Field(description="Opaque object-kind label for filtering (free string, not an enum).")
+    source_type: str = Field(description="Opaque object-kind label for filtering. Any free string works.")
 
     title: str = Field(default="", description="human-readable title")
     text: str = Field(default="", description="rendered text used for indexing")

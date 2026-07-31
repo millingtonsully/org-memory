@@ -59,7 +59,7 @@ if settings.embedding_dimensions != EMBEDDING_DIM:
     raise ConfigurationError(
         f"EMBEDDING_DIMENSIONS={settings.embedding_dimensions} does not match the "
         f"database schema's vector({EMBEDDING_DIM}) column. Changing dimensions "
-        "needs a re-embed migration, not just a config change."
+        "requires re-embedding every stored vector under a schema migration."
     )
 
 app = FastAPI()

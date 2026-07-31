@@ -1,5 +1,4 @@
-"""SQL repositories package modules.
-"""
+"""Token spend accounting: reservations, monthly totals, alert and hard-limit gates."""
 
 from __future__ import annotations
 
