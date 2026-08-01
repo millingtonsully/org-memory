@@ -61,6 +61,7 @@ def eager_close_claim_slot(graph: GraphRepository, winner: Claim) -> int:
         )
         superseded += 1
     if superseded:
+        graph._session.flush()
         logger.info(
             "temporality.eager_claim_close",
             subject=f"{winner.subject_type}:{winner.subject_id}",
@@ -124,6 +125,7 @@ def eager_close_relationship_slot(graph: GraphRepository, winner: Relationship) 
         )
         superseded += 1
     if superseded:
+        graph._session.flush()
         logger.info(
             "temporality.eager_relationship_close",
             from_node=f"{winner.from_type}:{winner.from_id}",

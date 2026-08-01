@@ -78,9 +78,14 @@ def test_eager_close_leaves_one_active_title(hermetic_workspace) -> None:
         )
         superseded = eager_close_claim_slot(graph, new)
         assert superseded == 1
-        session.refresh(old)
-        session.refresh(new)
+        session.flush()
         assert new.status == "active"
         assert old.status == "superseded"
         assert old.valid_to == _JUN
         assert old.superseded_by_claim_id == new.claim_id
+        # Re-read by PK so we assert persisted state, not only the in-session object.
+        persisted = session.get(Claim, old.claim_id)
+        assert persisted is not None
+        assert persisted.status == "superseded"
+        assert persisted.valid_to == _JUN
+        assert persisted.superseded_by_claim_id == new.claim_id

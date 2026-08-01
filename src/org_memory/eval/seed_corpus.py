@@ -152,10 +152,15 @@ def seed_gold_corpus(
     )
     session.flush()
 
+    seen_docs: set[str] = set()
+    seen_participants: set[tuple[str, str]] = set()
     for index, case in enumerate(cases):
         vector = unit_vector(index, dimensions=embedder.dimensions)
         embedder.plant(case.query, vector)
         for doc_id in case.expected_doc_ids:
+            if doc_id in seen_docs:
+                continue
+            seen_docs.add(doc_id)
             text = (
                 f"{case.query} Supporting passage for evaluation document {doc_id}. "
                 f"{case.notes}".strip()
@@ -181,6 +186,10 @@ def seed_gold_corpus(
                 else subject_id
             )
             for doc_id in case.expected_doc_ids:
+                key = (doc_id, subject_id)
+                if key in seen_participants:
+                    continue
+                seen_participants.add(key)
                 session.add(
                     DocumentParticipant(
                         doc_id=doc_id,

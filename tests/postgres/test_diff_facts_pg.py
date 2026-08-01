@@ -29,6 +29,7 @@ def _headers() -> dict[str, str]:
 
 def test_diff_facts_world_title_change(hermetic_workspace) -> None:
     from fastapi.testclient import TestClient
+
     from org_memory.db.engine import session_scope
     from org_memory.db.orm import Claim
     from org_memory.main import app
@@ -106,6 +107,7 @@ def test_diff_facts_world_title_change(hermetic_workspace) -> None:
 
 def test_diff_facts_rejects_incomplete_pair(hermetic_workspace) -> None:
     from fastapi.testclient import TestClient
+
     from org_memory.main import app
 
     client = TestClient(app)
