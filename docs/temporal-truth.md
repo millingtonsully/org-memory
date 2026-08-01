@@ -106,11 +106,12 @@ consistent read filters. Multi-valued predicates (`member_of`, skills) stay
 multi-valued. Ranking freshness and passage recency remain separate signals;
 they complement the ledger rather than replace supersession.
 
-**Next capabilities (separate waves).** Snapshot diff (“what changed between
-A and B”), richer relative-time coverage, spend-gated intent assist when rules
-abstain, and stronger connector `event_time` contracts. Those deepen temporal
-coverage; this wave makes exclusive structured facts trustworthy on write and
-readable on the right axis.
+**Next capabilities (separate waves).** Richer relative-time coverage, spend-gated
+intent assist when rules abstain, stronger connector `event_time` contracts,
+passage-side temporal filters, and a broader temporal gold set. Snapshot diff
+(“what changed between A and B”) ships as `diff_fact_snapshots` /
+`diff_subject_facts` / `POST /tools/diff_facts`, and compose includes
+`fact_diffs` when the intent plan carries `range_end`.
 
 ---
 
@@ -239,7 +240,7 @@ abstain):
 | “now”, “current”, “who is”, no time language | `current` |
 | “in March”, “as of”, “during the reorg”, “when she was on X” | `world` |
 | “what did we think”, “before the correction”, “as of our records on” | `belief` |
-| “what changed between … and …” | two world points (snapshot pair; dedicated diff surface is a later wave) |
+| “what changed between … and …” | two world (or belief) points → `as_of`/`believed_as_of` + `range_end`; compose fills `fact_diffs`; `POST /tools/diff_facts` is the primitive |
 
 Ambiguous questions return structured ambiguity (like `about`). Explicit
 client `as_of` / `believed_as_of` always win (host authority). When the client
@@ -329,16 +330,18 @@ planted vectors remain appropriate for retrieval wiring tests elsewhere.
 | Path | Role |
 | ---- | ---- |
 | [`src/org_memory/services/facts_query.py`](../src/org_memory/services/facts_query.py) | Subject facts + freshness decay |
-| [`src/org_memory/services/retrieve_context.py`](../src/org_memory/services/retrieve_context.py) | Compose; applies temporal plan when axes are omitted |
+| [`src/org_memory/services/facts_diff.py`](../src/org_memory/services/facts_diff.py) | Two-snapshot subject diff over `query_subject_facts` |
+| [`src/org_memory/services/retrieve_context.py`](../src/org_memory/services/retrieve_context.py) | Compose; applies temporal plan; `fact_diffs` when `range_end` set |
 | [`src/org_memory/services/retrieval.py`](../src/org_memory/services/retrieval.py) | Hybrid search; forwards temporal kwargs to fact candidates |
 | [`src/org_memory/api/routes_retrieve.py`](../src/org_memory/api/routes_retrieve.py) | HTTP for compose |
-| [`src/org_memory/api/routes_facts.py`](../src/org_memory/api/routes_facts.py) | HTTP for facts/paths |
+| [`src/org_memory/api/routes_facts.py`](../src/org_memory/api/routes_facts.py) | HTTP for facts / paths / `diff_facts` |
 
 ### Tests and eval
 
 | Path | Role |
 | ---- | ---- |
 | [`tests/postgres/test_query_facts_paths.py`](../tests/postgres/test_query_facts_paths.py) | Temporal filters, ACL, supersession-friendly fixtures |
+| [`tests/postgres/test_diff_facts_pg.py`](../tests/postgres/test_diff_facts_pg.py) | Snapshot diff HTTP contract |
 | [`tests/postgres/test_retrieve_context.py`](../tests/postgres/test_retrieve_context.py) | Compose + ACL |
 | [`evals/retrieval/gold_set.json`](../evals/retrieval/gold_set.json) | Retrieval gold set; extends with temporal cases |
 
@@ -380,13 +383,15 @@ resolution are already in place and stay the foundation.
 
 ```text
 src/org_memory/services/temporality/
-  __init__.py           # public: ground_fact_times, plan_temporal_query
+  __init__.py           # public: ground_fact_times, plan_temporal_query, diff_fact_snapshots
   types.py              # TemporalQueryPlan, GroundedInterval, TimeGrain
   grounding.py          # t_ref + extractor fields → GroundedInterval (pure)
   intent.py             # query text → TemporalQueryPlan (rules first)
   intent_llm.py         # spend-gated assist when rules abstain
   eager_close.py        # exclusive slot close after apply
+  diff.py               # pure snapshot classify (added/removed/changed)
 
+src/org_memory/services/facts_diff.py     # subject diff over query_subject_facts
 src/org_memory/domain/fact_lifecycle.py   # ranking / transitions (unchanged home)
 ```
 
@@ -394,7 +399,9 @@ src/org_memory/domain/fact_lifecycle.py   # ranking / transitions (unchanged hom
 - **`services/temporality/`** owns time interpretation and eager-close
   orchestration that needs graph repositories.  
 - **`extraction_apply.py`** calls grounding + eager_close.  
-- **`retrieve_context.py`** calls `plan_temporal_query` when axes are omitted.  
+- **`retrieve_context.py`** calls `plan_temporal_query` when axes are omitted;
+  when the plan has `range_end`, compose also returns `fact_diffs`.  
+- **`POST /tools/diff_facts`** is the snapshot-diff primitive.  
 - **Workers/conflicts** remain the async safety net and keep using the same
   ranking helpers.
 
@@ -439,11 +446,11 @@ wiring, README/model doc alignment, temporal gold cases.
 
 **Next waves (deeper temporal coverage)**
 
-- Snapshot-diff helper for “what changed between A and B”  
 - Broader relative-time rule table and grain-aware matching in SQL  
 - Spend-gated intent assist when rules abstain  
 - Connector contracts that guarantee sound `event_time`  
 - Passage-side temporal filters where the product needs document as-of  
+- Broader temporal gold set (belief-axis live eval, diff cases) 
 
 ### Success criteria
 

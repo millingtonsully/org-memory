@@ -47,11 +47,17 @@ does not pretend day-level precision the evidence never had.
   service would have returned at that moment.
 - Omitting both returns currently active facts with open validity.
 
-`retrieve_context` accepts the same parameters. When the caller omits both
-axes, compose derives a temporal plan from the query text (see
+`POST /tools/diff_facts` compares two snapshots of the same subject on one
+axis: a world pair (`as_of_from` / `as_of_to`) or a belief pair
+(`believed_as_of_from` / `believed_as_of_to`). The response classifies facts as
+unchanged, added, removed, or changed (exclusive predicates that swap values).
+
+`retrieve_context` accepts the same single-point parameters. When the caller
+omits both axes, compose derives a temporal plan from the query text (see
 [`temporal-truth.md`](temporal-truth.md)). Explicit timestamps from the host
-always win. Path responses include `truncated` (more paths than `limit`) and
-`capped` (request depth/limit was clamped to hard maxima).
+always win. When the plan is a snapshot pair (`range_end` set), compose also
+returns `fact_diffs`. Path responses include `truncated` (more paths than
+`limit`) and `capped` (request depth/limit was clamped to hard maxima).
 
 ## Lifecycle and supersession
 

@@ -56,3 +56,20 @@ def test_quarter_grain() -> None:
     assert plan.axis == "world"
     assert plan.grain == "quarter"
     assert plan.as_of == datetime(2026, 2, 15, tzinfo=UTC)
+
+
+def test_world_snapshot_diff_between_months() -> None:
+    plan = plan_temporal_query(
+        "What changed for Alice between March 2026 and June 2026?", now=_NOW
+    )
+    assert plan.status == "ok"
+    assert plan.axis == "world"
+    assert plan.as_of == datetime(2026, 3, 15, tzinfo=UTC)
+    assert plan.range_end == datetime(2026, 6, 15, tzinfo=UTC)
+    assert plan.rationale == "world_snapshot_diff"
+
+
+def test_between_without_dates_is_ambiguous() -> None:
+    plan = plan_temporal_query("What changed between the reorg and now?", now=_NOW)
+    assert plan.status == "ambiguous"
+    assert plan.rationale == "between_without_two_resolvable_points"

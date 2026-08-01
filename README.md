@@ -106,6 +106,7 @@ Contract: `contracts/tools/retrieve_context.request.schema.json`.
 | `POST /tools/search_knowledge_base` | Hybrid passage search (MCP envelope) |
 | `POST /tools/worldbuilder_kb` | Same search, Worldbuilder response shape |
 | `POST /tools/query_facts` | Claims for one subject |
+| `POST /tools/diff_facts` | Snapshot diff of claims between two as-of (or belief) points |
 | `POST /tools/query_paths` | Bounded relationship walks |
 | `POST /tools/worldbuilder_lookup` | Synthesized person/team/project/glossary profile |
 | `POST /tools/search_procedural_memory` | Procedural memory search |
@@ -192,8 +193,11 @@ participates; `author` filters authorship. Those are distinct.
 `believed_as_of`. When those axes are set, the hybrid fact channel inside
 `retrieve_context` uses the same windows (active + superseded). When both are
 omitted, compose derives a temporal plan from the query text; explicit host
-timestamps always win. Schema `0001` indexes subject/endpoint plus temporal
-ranges. Storage: `docs/temporal-model.md`. Pipeline: `docs/temporal-truth.md`.
+timestamps always win. Snapshot questions (“what changed between A and B”)
+produce a plan with `range_end`; compose then includes `fact_diffs`, and
+hosts can call `POST /tools/diff_facts` directly. Schema `0001` indexes
+subject/endpoint plus temporal ranges. Storage: `docs/temporal-model.md`.
+Pipeline: `docs/temporal-truth.md`.
 
 Active facts also rank with exponential freshness
 (`FACT_FRESHNESS_HALF_LIFE_DAYS` / `FACT_FRESHNESS_MIN_DECAY`; per-predicate
@@ -233,6 +237,7 @@ schemas), `config/taxonomy_registry/` (live ontology instances),
 | `services/retrieval.py` | Hybrid search orchestration, diagnostics builders |
 | `services/retrieve_context.py` | Compose search + facts + paths; packing |
 | `services/facts_query.py` | Shared subject-fact fetch used by HTTP facts and retrieve |
+| `services/facts_diff.py` | Two-snapshot subject fact diff (world or belief) |
 | `services/ranking.py` | RRF / score helpers with deterministic ties |
 | `services/extraction.py` | LLM extract loop + apply entities/claims/relationships |
 | `services/extraction_windows.py` | Pure overlapping window split for long documents |

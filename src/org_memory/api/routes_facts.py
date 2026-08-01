@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from org_memory.api.deps import bind_principal, get_session, require_api_key
 from org_memory.db.repositories import GraphRepository
 from org_memory.domain.models import Principal
+from org_memory.services.facts_diff import diff_subject_facts
 from org_memory.services.facts_query import query_subject_facts
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
@@ -56,6 +57,58 @@ def query_facts(
             predicate=body.predicate,
             as_of=body.as_of,
             believed_as_of=body.believed_as_of,
+            limit=body.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class DiffFactsRequest(BaseModel):
+    subject_type: str = Field(min_length=1)
+    subject_id: str = Field(min_length=1)
+    predicate: str | None = Field(
+        default=None,
+        description="Registry predicate key; omit to diff all predicates for the subject.",
+    )
+    as_of_from: datetime | None = Field(
+        default=None,
+        description="World-time start of the snapshot pair (exclusive with belief pair).",
+    )
+    as_of_to: datetime | None = Field(
+        default=None,
+        description="World-time end of the snapshot pair; must be after as_of_from.",
+    )
+    believed_as_of_from: datetime | None = Field(
+        default=None,
+        description="Belief-time start of the snapshot pair (exclusive with world pair).",
+    )
+    believed_as_of_to: datetime | None = Field(
+        default=None,
+        description=(
+            "Belief-time end of the snapshot pair; must be after believed_as_of_from."
+        ),
+    )
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+@router.post("/tools/diff_facts")
+def diff_facts(
+    body: DiffFactsRequest,
+    principal: Principal = Depends(bind_principal),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Compare two temporal snapshots of claims for one subject."""
+    try:
+        return diff_subject_facts(
+            GraphRepository(session),
+            subject_type=body.subject_type,
+            subject_id=body.subject_id,
+            principal=principal,
+            predicate=body.predicate,
+            as_of_from=body.as_of_from,
+            as_of_to=body.as_of_to,
+            believed_as_of_from=body.believed_as_of_from,
+            believed_as_of_to=body.believed_as_of_to,
             limit=body.limit,
         )
     except ValueError as exc:

@@ -35,6 +35,11 @@ _DURING_RE = re.compile(
     re.I,
 )
 _CURRENT_RE = re.compile(r"\b(now|current|currently|today|who is|what is)\b", re.I)
+_BETWEEN_RE = re.compile(
+    r"\b(what\s+changed|changes?|difference|diff)\b.*\bbetween\b",
+    re.I,
+)
+_BETWEEN_SPLIT_RE = re.compile(r"\bbetween\b(.+?)\band\b(.+)$", re.I)
 
 _MONTHS = {
     "january": 1,
@@ -80,6 +85,37 @@ def plan_temporal_query(
     has_calendar = point is not None
     has_world_soft = bool(_AS_OF_RE.search(text) or _DURING_RE.search(text))
     has_current = bool(_CURRENT_RE.search(text))
+    has_between = bool(_BETWEEN_RE.search(text))
+
+    if has_between:
+        pair = _extract_between_points(text, clock)
+        if pair is None:
+            return TemporalQueryPlan(
+                axis="belief" if has_belief else "world",
+                status="ambiguous",
+                confidence=0.25,
+                rationale="between_without_two_resolvable_points",
+            )
+        start, end, pair_grain = pair
+        if has_belief:
+            return TemporalQueryPlan(
+                axis="belief",
+                believed_as_of=start,
+                range_end=end,
+                grain=pair_grain,
+                confidence=0.85,
+                status="ok",
+                rationale="belief_snapshot_diff",
+            )
+        return TemporalQueryPlan(
+            axis="world",
+            as_of=start,
+            range_end=end,
+            grain=pair_grain,
+            confidence=0.9,
+            status="ok",
+            rationale="world_snapshot_diff",
+        )
 
     if has_belief and has_world_soft and not has_calendar:
         # e.g. belief cue + "as of" without a resolvable date
@@ -134,6 +170,31 @@ def plan_temporal_query(
     )
 
 
+def _extract_between_points(
+    text: str, clock: datetime
+) -> tuple[datetime, datetime, TimeGrain] | None:
+    split = _BETWEEN_SPLIT_RE.search(text)
+    if not split:
+        return None
+    left = split.group(1).strip()
+    right = split.group(2).strip()
+    # Prefer an explicit year on the right for a bare month on the left.
+    right_point, right_grain = _extract_calendar_point(right, clock)
+    if right_point is None:
+        return None
+    left_clock = right_point
+    left_point, left_grain = _extract_calendar_point(left, left_clock)
+    if left_point is None:
+        return None
+    start, end = left_point, right_point
+    if start > end:
+        start, end = end, start
+    if start == end:
+        return None
+    grain: TimeGrain = left_grain if left_grain == right_grain else "unknown"
+    return start, end, grain
+
+
 def _extract_calendar_point(
     text: str, clock: datetime
 ) -> tuple[datetime | None, TimeGrain]:
@@ -151,9 +212,28 @@ def _extract_calendar_point(
         last_day = calendar.monthrange(year, month)[1]
         return datetime(year, month, min(15, last_day), tzinfo=UTC), "month"
 
+    # Bare month name (no leading "in") for between-clauses.
+    bare = re.search(
+        r"\b(?P<month>january|february|march|april|may|june|july|"
+        r"august|september|october|november|december)"
+        r"(?:\s+(?P<year>20\d{2}))?\b",
+        text,
+        re.I,
+    )
+    if bare:
+        month = _MONTHS[bare.group("month").lower()]
+        year = int(bare.group("year") or clock.year)
+        last_day = calendar.monthrange(year, month)[1]
+        return datetime(year, month, min(15, last_day), tzinfo=UTC), "month"
+
     match = _YEAR_RE.search(text)
     if match:
         year = int(match.group("year"))
+        return datetime(year, 7, 1, tzinfo=UTC), "year"
+
+    year_bare = re.search(r"\b(?P<year>20\d{2})\b", text)
+    if year_bare and not bare:
+        year = int(year_bare.group("year"))
         return datetime(year, 7, 1, tzinfo=UTC), "year"
 
     return None, "unknown"

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from org_memory.db.repositories import GraphRepository
 from org_memory.domain.models import Principal, SearchResponse
 from org_memory.services.chunking import count_tokens
+from org_memory.services.facts_diff import diff_subject_facts
 from org_memory.services.facts_query import query_subject_facts
 from org_memory.services.retrieval import RetrievalService
 from org_memory.services.temporality import plan_temporal_query
@@ -98,6 +99,9 @@ class RetrieveContextService:
         temporal_plan = None
         effective_as_of = as_of
         effective_believed_as_of = believed_as_of
+        diff_from: datetime | None = None
+        diff_to: datetime | None = None
+        diff_axis: Literal["world", "belief"] | None = None
         if as_of is None and believed_as_of is None:
             temporal_plan = plan_temporal_query(query)
             if temporal_plan.status == "ambiguous":
@@ -113,12 +117,28 @@ class RetrieveContextService:
                     "search_facts": [],
                     "structured_facts": [],
                     "paths": [],
+                    "fact_diffs": [],
                     "truncated_tokens": False,
                 }
             if temporal_plan.axis == "world":
-                effective_as_of = temporal_plan.as_of
+                if temporal_plan.range_end is not None and temporal_plan.as_of is not None:
+                    effective_as_of = temporal_plan.range_end
+                    diff_from = temporal_plan.as_of
+                    diff_to = temporal_plan.range_end
+                    diff_axis = "world"
+                else:
+                    effective_as_of = temporal_plan.as_of
             elif temporal_plan.axis == "belief":
-                effective_believed_as_of = temporal_plan.believed_as_of
+                if (
+                    temporal_plan.range_end is not None
+                    and temporal_plan.believed_as_of is not None
+                ):
+                    effective_believed_as_of = temporal_plan.range_end
+                    diff_from = temporal_plan.believed_as_of
+                    diff_to = temporal_plan.range_end
+                    diff_axis = "belief"
+                else:
+                    effective_believed_as_of = temporal_plan.believed_as_of
 
         about_person_ids = [
             s.id for s in subject_list if s.type == "person"
@@ -128,6 +148,7 @@ class RetrieveContextService:
         search: SearchResponse | None = None
         structured_facts: list[dict] = []
         path_blocks: list[dict] = []
+        fact_diffs: list[dict] = []
 
         def run_search(*, with_about: bool) -> SearchResponse:
             return self._retrieval.search(
@@ -151,9 +172,10 @@ class RetrieveContextService:
                 believed_as_of=effective_believed_as_of,
             )
 
-        def run_graph() -> tuple[list[dict], list[dict]]:
+        def run_graph() -> tuple[list[dict], list[dict], list[dict]]:
             facts_out: list[dict] = []
             paths_out: list[dict] = []
+            diffs_out: list[dict] = []
             for subject in subject_list:
                 facts_out.append(
                     query_subject_facts(
@@ -166,6 +188,34 @@ class RetrieveContextService:
                         limit=fact_limit_per_subject,
                     )
                 )
+                if diff_axis == "world" and diff_from is not None and diff_to is not None:
+                    diffs_out.append(
+                        diff_subject_facts(
+                            self._require_graph(),
+                            subject_type=subject.type,
+                            subject_id=subject.id,
+                            principal=principal,
+                            as_of_from=diff_from,
+                            as_of_to=diff_to,
+                            limit=fact_limit_per_subject,
+                        )
+                    )
+                elif (
+                    diff_axis == "belief"
+                    and diff_from is not None
+                    and diff_to is not None
+                ):
+                    diffs_out.append(
+                        diff_subject_facts(
+                            self._require_graph(),
+                            subject_type=subject.type,
+                            subject_id=subject.id,
+                            principal=principal,
+                            believed_as_of_from=diff_from,
+                            believed_as_of_to=diff_to,
+                            limit=fact_limit_per_subject,
+                        )
+                    )
                 path_result = self._require_graph().paths_from(
                     start_type=subject.type,
                     start_id=subject.id,
@@ -195,18 +245,18 @@ class RetrieveContextService:
                         ),
                     }
                 )
-            return facts_out, paths_out
+            return facts_out, paths_out, diffs_out
 
         if mode == "vector_first":
             search = run_search(with_about=bool(about_person_ids or about_doc_ids))
             if subject_list:
-                structured_facts, path_blocks = run_graph()
+                structured_facts, path_blocks, fact_diffs = run_graph()
         elif mode == "graph_first":
-            structured_facts, path_blocks = run_graph()
+            structured_facts, path_blocks, fact_diffs = run_graph()
             search = run_search(with_about=True)
         else:  # joint
             if subject_list:
-                structured_facts, path_blocks = run_graph()
+                structured_facts, path_blocks, fact_diffs = run_graph()
             search = run_search(with_about=bool(subject_list))
 
         assert search is not None
@@ -217,6 +267,7 @@ class RetrieveContextService:
             "passages": [p.model_dump(mode="json") for p in search.passages],
             "search_facts": [f.model_dump(mode="json") for f in search.facts],
             "structured_facts": structured_facts,
+            "fact_diffs": fact_diffs,
             "paths": path_blocks,
             "total_candidates": search.total_candidates,
             "reranked": search.reranked,
@@ -245,6 +296,11 @@ class RetrieveContextService:
                 ),
                 "structured_facts_truncated_any": any(
                     bool(block.get("truncated")) for block in structured_facts
+                ),
+                "fact_diff_blocks": len(fact_diffs),
+                "fact_diffs_changed": sum(
+                    int((block.get("counts") or {}).get("changed") or 0)
+                    for block in fact_diffs
                 ),
                 "path_blocks": len(path_blocks),
                 "paths_returned": sum(
@@ -296,6 +352,7 @@ class RetrieveContextService:
                     "search_facts": [],
                     "structured_facts": [],
                     "paths": [],
+                    "fact_diffs": [],
                     "truncated_tokens": False,
                 }
             if resolved.get("kind") == "person":
@@ -336,11 +393,11 @@ def _apply_token_budget(
 
     # Priority: keep earlier channels; trim later lists first.
     if mode == "graph_first":
-        trim_order = ("passages", "search_facts", "paths", "structured_facts")
+        trim_order = ("passages", "search_facts", "paths", "fact_diffs", "structured_facts")
     elif mode == "joint":
-        trim_order = ("paths", "search_facts", "structured_facts", "passages")
+        trim_order = ("paths", "fact_diffs", "search_facts", "structured_facts", "passages")
     else:
-        trim_order = ("paths", "structured_facts", "search_facts", "passages")
+        trim_order = ("paths", "fact_diffs", "structured_facts", "search_facts", "passages")
 
     trimmed = dict(payload)
     for key in trim_order:
