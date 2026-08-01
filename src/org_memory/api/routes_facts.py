@@ -96,7 +96,13 @@ def query_facts(
             continue
         if not registry.is_known_predicate(claim.predicate):
             continue
-        if body.as_of is None and claim.status != "active":
+        # Temporal reads intentionally include superseded rows. Only the
+        # "current active" path (no as_of / believed_as_of) drops them.
+        if (
+            body.as_of is None
+            and body.believed_as_of is None
+            and claim.status != "active"
+        ):
             continue
         visible_quotes = [
             quote

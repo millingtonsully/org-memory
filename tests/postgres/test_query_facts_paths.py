@@ -186,6 +186,79 @@ def test_claims_for_viewer_filters_by_system_time(hermetic_workspace) -> None:
     assert after_invalidation == []
 
 
+def test_query_facts_http_believed_as_of_returns_superseded(hermetic_workspace) -> None:
+    """HTTP believed_as_of must not drop superseded claims that were believed then."""
+    from fastapi.testclient import TestClient
+
+    from org_memory.db.engine import session_scope
+    from org_memory.db.orm import Claim
+    from org_memory.main import app
+
+    subject = _subject()
+    doc_id = f"test:facts-http-belief-{hermetic_workspace}"
+    claim_id = f"claim-http-belief-{uuid.uuid4().hex[:8]}"
+
+    with session_scope() as session:
+        session.add(
+            make_doc(
+                doc_id=doc_id,
+                workspace_id=hermetic_workspace,
+                org_visible=True,
+                allowed_principals=[],
+                event_time=_JAN,
+            )
+        )
+        session.add(
+            Claim(
+                claim_id=claim_id,
+                workspace_id=hermetic_workspace,
+                subject_type="person",
+                subject_id=subject,
+                predicate="title",
+                object_text="Engineer",
+                valid_from=_JAN,
+                valid_to=None,
+                recorded_at=_JAN,
+                invalidated_at=_JUL,
+                confidence=0.9,
+                status="superseded",
+                evidence_doc_ids=[doc_id],
+                created_by="test",
+            )
+        )
+
+    client = TestClient(app)
+    response = client.post(
+        "/tools/query_facts",
+        headers=_headers(),
+        json={
+            "subject_type": "person",
+            "subject_id": subject,
+            "predicate": "title",
+            "believed_as_of": _MAR.isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["returned"] == 1
+    assert body["facts"][0]["fact_id"] == claim_id
+    assert body["facts"][0]["status"] == "superseded"
+    assert body["believed_as_of"] is not None
+
+    after = client.post(
+        "/tools/query_facts",
+        headers=_headers(),
+        json={
+            "subject_type": "person",
+            "subject_id": subject,
+            "predicate": "title",
+            "believed_as_of": _AUG.isoformat(),
+        },
+    )
+    assert after.status_code == 200
+    assert after.json()["returned"] == 0
+
+
 def test_claims_for_viewer_requires_all_evidence_visible(hermetic_workspace) -> None:
     """A claim backed by one private doc is hidden from viewers who lack it."""
     from org_memory.db.engine import session_scope
