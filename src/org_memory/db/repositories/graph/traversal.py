@@ -10,6 +10,19 @@ from org_memory.db.orm import Relationship
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
 
+# All-visible evidence: every evidence doc must be in visible_docs.
+_EDGE_ACL_SQL = """
+    cardinality(r.evidence_doc_ids) > 0
+    AND (
+        SELECT count(DISTINCT e)
+        FROM unnest(r.evidence_doc_ids) AS e
+    ) = (
+        SELECT count(*)
+        FROM visible_docs v
+        WHERE v.doc_id = ANY(r.evidence_doc_ids)
+    )
+"""
+
 
 class GraphTraversalMixin(GraphRepositoryBase):
     """Recursive path walks with depth caps and cycle guards."""
@@ -34,6 +47,9 @@ class GraphTraversalMixin(GraphRepositoryBase):
         World-time (``as_of``) and system-time (``believed_as_of``) filters match
         claim reads. When either temporal point is set, superseded edges whose
         windows contain the point are eligible; otherwise only active edges are.
+
+        All-visible evidence ACL is enforced inside the recursive walk so private
+        edges never consume the path budget.
         """
         requested_max_depth = int(max_depth)
         requested_limit = int(limit)
@@ -48,10 +64,23 @@ class GraphTraversalMixin(GraphRepositoryBase):
             if as_of is not None or believed_as_of is not None
             else ["active"]
         )
+        # Fetch one extra row so truncated is accurate without a second count query.
+        fetch_limit = effective_limit + 1
         rows = list(
             self._session.execute(
-                sql("""
-                    WITH RECURSIVE walk AS (
+                sql(f"""
+                    WITH RECURSIVE visible_docs AS (
+                        SELECT d.doc_id
+                        FROM documents d
+                        WHERE d.workspace_id = :workspace_id
+                          AND d.deleted = false
+                          AND (
+                              d.org_visible = true
+                              OR d.allowed_principals
+                                 && CAST(:viewer_principals AS text[])
+                          )
+                    ),
+                    walk AS (
                         SELECT
                             r.relationship_id,
                             r.from_type AS start_type,
@@ -82,6 +111,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                                OR (r.recorded_at <= :believed_as_of
                                    AND (r.invalidated_at IS NULL
                                         OR r.invalidated_at > :believed_as_of)))
+                          AND {_EDGE_ACL_SQL}
                         UNION ALL
                         SELECT
                             r.relationship_id,
@@ -112,6 +142,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                                   AND (r.invalidated_at IS NULL
                                        OR r.invalidated_at > :believed_as_of)))
                          AND NOT (r.to_type || ':' || r.to_id = ANY(w.node_path))
+                         AND {_EDGE_ACL_SQL}
                         WHERE w.depth < :max_depth
                     )
                     SELECT *
@@ -121,6 +152,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                 """),
                 {
                     "workspace_id": self._ws,
+                    "viewer_principals": principal.all_principals(),
                     "start_type": start_type,
                     "start_id": start_id,
                     "rel_types": rel_types or None,
@@ -128,7 +160,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                     "as_of": as_of,
                     "believed_as_of": believed_as_of,
                     "max_depth": effective_depth,
-                    "limit": effective_limit * 5,
+                    "limit": fetch_limit,
                 },
             ).mappings()
         )
@@ -150,15 +182,6 @@ class GraphTraversalMixin(GraphRepositoryBase):
             )
             rel_by_id = {rel.relationship_id: rel for rel in loaded}
 
-        all_evidence: list[str] = []
-        seen_docs: set[str] = set()
-        for rel in rel_by_id.values():
-            for doc_id in rel.evidence_doc_ids or []:
-                if doc_id not in seen_docs:
-                    seen_docs.add(doc_id)
-                    all_evidence.append(doc_id)
-        visible_set = set(self.visible_evidence_doc_ids(all_evidence, principal))
-
         accepted: list[dict] = []
         for row in rows:
             edge_ids_for_path = list(row["edge_path"] or [])
@@ -172,18 +195,13 @@ class GraphTraversalMixin(GraphRepositoryBase):
                     ok = False
                     break
                 edge_evidence = list(edge_rel.evidence_doc_ids or [])
-                if not edge_evidence or not set(edge_evidence) <= visible_set:
-                    ok = False
-                    break
                 edges_out.append(
                     {
                         "relationship_id": edge_rel.relationship_id,
                         "from": {"type": edge_rel.from_type, "id": edge_rel.from_id},
                         "to": {"type": edge_rel.to_type, "id": edge_rel.to_id},
                         "relationship_type": edge_rel.relationship_type,
-                        "evidence_doc_ids": [
-                            doc_id for doc_id in edge_evidence if doc_id in visible_set
-                        ],
+                        "evidence_doc_ids": edge_evidence,
                     }
                 )
             if not ok:
