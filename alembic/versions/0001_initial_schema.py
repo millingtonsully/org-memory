@@ -15,6 +15,9 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # btree_gist lets text equality participate in multicolumn GiST indexes
+    # used for as_of / believed_as_of range containment on claims and edges.
+    op.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
 
     op.execute("""
         CREATE TABLE documents (
@@ -231,8 +234,37 @@ def upgrade() -> None:
             updated_at                      timestamptz NOT NULL DEFAULT now()
         )
     """)
-    op.execute("CREATE INDEX ix_relationships_from ON relationships (workspace_id, from_type, from_id)")
     op.execute("CREATE INDEX ix_relationships_to ON relationships (workspace_id, to_type, to_id)")
+    # Path walks and edge lists filter status + optional temporal windows.
+    # (workspace, from_*) prefix covers the old from-only lookup.
+    op.execute("""
+        CREATE INDEX ix_relationships_from_status
+        ON relationships (workspace_id, from_type, from_id, status)
+    """)
+    op.execute("""
+        CREATE INDEX ix_relationships_from_valid_range ON relationships USING gist (
+            workspace_id,
+            from_type,
+            from_id,
+            tstzrange(
+                COALESCE(valid_from, '-infinity'::timestamptz),
+                COALESCE(valid_to, 'infinity'::timestamptz),
+                '[)'
+            )
+        )
+    """)
+    op.execute("""
+        CREATE INDEX ix_relationships_from_belief_range ON relationships USING gist (
+            workspace_id,
+            from_type,
+            from_id,
+            tstzrange(
+                recorded_at,
+                COALESCE(invalidated_at, 'infinity'::timestamptz),
+                '[)'
+            )
+        )
+    """)
     op.execute("""
         CREATE INDEX ix_active_relationships_search ON relationships USING gin (
             to_tsvector(
@@ -268,7 +300,35 @@ def upgrade() -> None:
             updated_at              timestamptz NOT NULL DEFAULT now()
         )
     """)
-    op.execute("CREATE INDEX ix_claims_subject ON claims (workspace_id, subject_type, subject_id)")
+    op.execute("""
+        CREATE INDEX ix_claims_subject_status
+        ON claims (workspace_id, subject_type, subject_id, status)
+    """)
+    # World-time and system-time containment for query_facts as_of / believed_as_of.
+    op.execute("""
+        CREATE INDEX ix_claims_subject_valid_range ON claims USING gist (
+            workspace_id,
+            subject_type,
+            subject_id,
+            tstzrange(
+                COALESCE(valid_from, '-infinity'::timestamptz),
+                COALESCE(valid_to, 'infinity'::timestamptz),
+                '[)'
+            )
+        )
+    """)
+    op.execute("""
+        CREATE INDEX ix_claims_subject_belief_range ON claims USING gist (
+            workspace_id,
+            subject_type,
+            subject_id,
+            tstzrange(
+                recorded_at,
+                COALESCE(invalidated_at, 'infinity'::timestamptz),
+                '[)'
+            )
+        )
+    """)
     op.execute("""
         CREATE INDEX ix_active_claims_search ON claims USING gin (
             to_tsvector('english', coalesce(predicate, '') || ' ' || coalesce(object_text, ''))

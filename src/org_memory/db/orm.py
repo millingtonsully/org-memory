@@ -156,7 +156,11 @@ class Entity(Base):
 
 
 class Relationship(Base):
-    """Typed graph edge with validity window, evidence, and status lifecycle."""
+    """Typed graph edge with validity window, evidence, and status lifecycle.
+
+    Temporal indexes live in alembic 0001: from+status B-tree, plus GiST ranges
+    on valid_from/valid_to and recorded_at/invalidated_at for as_of / believed_as_of.
+    """
 
     __tablename__ = "relationships"
 
@@ -192,6 +196,9 @@ class Claim(Base):
     World validity is half-open: valid_from <= as_of AND (valid_to IS NULL OR valid_to > as_of).
     System belief: recorded_at <= believed_as_of AND
     (invalidated_at IS NULL OR invalidated_at > believed_as_of).
+
+    Temporal indexes live in alembic 0001: subject+status B-tree, plus GiST
+    ranges on the validity and belief windows for as_of / believed_as_of.
     """
 
     __tablename__ = "claims"

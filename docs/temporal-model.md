@@ -67,6 +67,24 @@ Separately from validity, active facts decay in ranking as they age.
 facts rank lower without disappearing. Passage retrieval applies the same
 decay shape to document event times.
 
+## Indexes
+
+Schema `0001` creates temporal indexes so `query_facts` / `query_paths` can
+filter by subject (or edge endpoint) and contain a point in either time axis
+without scanning the full table:
+
+- B-tree: `ix_claims_subject_status`, `ix_relationships_from_status`
+  (workspace + endpoint + status).
+- GiST ranges (requires `btree_gist`): `ix_claims_subject_valid_range`,
+  `ix_claims_subject_belief_range`, and the matching
+  `ix_relationships_from_*_range` indexes on
+  `tstzrange(valid_from, valid_to)` and
+  `tstzrange(recorded_at, invalidated_at)`.
+
+Because this project keeps a single squashed Alembic revision, already-migrated
+databases must be reset or recreated so `alembic upgrade head` applies the
+new indexes. Fresh CI and Docker databases pick them up automatically.
+
 ## Documents and chunks
 
 Documents carry `event_time` (when the content happened in the source system)
