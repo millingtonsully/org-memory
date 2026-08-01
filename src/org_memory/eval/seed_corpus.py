@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from org_memory.db.orm import Claim, Chunk, Document, DocumentParticipant, Entity, Person
+from org_memory.db.orm import Chunk, Claim, Document, DocumentParticipant, Entity, Person
 from org_memory.eval.fixture_embedder import EvalFixtureEmbedder, unit_vector
 from org_memory.eval.harness import GoldCase
 
