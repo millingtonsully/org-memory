@@ -100,6 +100,7 @@ class RetrievalService:
         mode: str = "hybrid",
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
     ) -> SearchResponse:
         settings = get_settings()
         candidate_pool = settings.rerank_candidates
@@ -225,6 +226,7 @@ class RetrievalService:
                 about_doc_ids=about_doc_ids,
                 as_of=as_of,
                 believed_as_of=believed_as_of,
+                as_of_grain=as_of_grain,
             )
 
         by_id: dict[str, dict] = {}

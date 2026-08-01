@@ -33,8 +33,11 @@ The axes answer different questions:
 
 Optional `time_grain` on claims and relationships (`day`, `month`, `quarter`,
 `year`, or `unknown`) records how precise the source was. World-time matching
-respects grain (for example, “in March” uses month containment) so the ledger
-does not pretend day-level precision the evidence never had.
+expands a fact's `valid_from` to the start of its grain, and when the query
+supplies `as_of_grain` of `month` / `quarter` / `year`, uses overlap with that
+calendar bucket (for example, “in March” matches any fact that intersects
+March). Point queries (`as_of_grain` unset or `day`/`unknown`) keep half-open
+point containment after fact-side expansion.
 
 ## Query surface
 

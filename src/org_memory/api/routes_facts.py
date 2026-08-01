@@ -39,6 +39,14 @@ class QueryFactsRequest(BaseModel):
             "(recorded_at <= believed_as_of < invalidated_at)."
         ),
     )
+    as_of_grain: str | None = Field(
+        default=None,
+        description=(
+            "World-time grain for as_of matching: day|month|quarter|year|unknown. "
+            "Month/quarter/year use calendar-bucket overlap; fact time_grain expands "
+            "valid_from to the start of that grain."
+        ),
+    )
     limit: int = Field(default=50, ge=1, le=200)
 
 
@@ -57,6 +65,7 @@ def query_facts(
             predicate=body.predicate,
             as_of=body.as_of,
             believed_as_of=body.believed_as_of,
+            as_of_grain=body.as_of_grain,
             limit=body.limit,
         )
     except ValueError as exc:
@@ -145,6 +154,13 @@ class QueryPathsRequest(BaseModel):
             "(recorded_at <= believed_as_of < invalidated_at)."
         ),
     )
+    as_of_grain: str | None = Field(
+        default=None,
+        description=(
+            "World-time grain for as_of matching on edges "
+            "(day|month|quarter|year|unknown)."
+        ),
+    )
 
 
 @router.post("/tools/query_paths")
@@ -163,6 +179,7 @@ def query_paths(
         limit=body.limit,
         as_of=body.as_of,
         believed_as_of=body.believed_as_of,
+        as_of_grain=body.as_of_grain,
     )
     return {
         "start": {
@@ -179,4 +196,5 @@ def query_paths(
         "believed_as_of": (
             body.believed_as_of.isoformat() if body.believed_as_of else None
         ),
+        "as_of_grain": body.as_of_grain,
     }

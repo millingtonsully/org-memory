@@ -6,6 +6,11 @@ Public entry points used by extraction apply and retrieve_context.
 from __future__ import annotations
 
 from org_memory.services.temporality.diff import diff_fact_snapshots
+from org_memory.services.temporality.grain import (
+    fact_matches_as_of,
+    normalize_grain,
+    validity_as_of_sql,
+)
 from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.services.temporality.intent import plan_temporal_query
 from org_memory.services.temporality.types import (
@@ -21,6 +26,9 @@ __all__ = [
     "TemporalQueryPlan",
     "TimeGrain",
     "diff_fact_snapshots",
+    "fact_matches_as_of",
     "ground_fact_times",
+    "normalize_grain",
     "plan_temporal_query",
+    "validity_as_of_sql",
 ]

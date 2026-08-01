@@ -9,6 +9,9 @@ from sqlalchemy import text as sql
 from org_memory.db.orm import Relationship
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
+from org_memory.services.temporality.grain import validity_as_of_sql
+
+_REL_VALIDITY_AS_OF = validity_as_of_sql("r")
 
 # All-visible evidence: every evidence doc must be in visible_docs.
 _EDGE_ACL_SQL = """
@@ -38,6 +41,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
         limit: int = 50,
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
     ) -> dict:
         """Bounded multi-hop paths; every edge's evidence must be viewer-visible.
 
@@ -104,9 +108,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                               CAST(:rel_types AS text[]) IS NULL
                               OR r.relationship_type = ANY(CAST(:rel_types AS text[]))
                           )
-                          AND (CAST(:as_of AS timestamptz) IS NULL
-                               OR ((r.valid_from IS NULL OR r.valid_from <= :as_of)
-                                   AND (r.valid_to IS NULL OR r.valid_to > :as_of)))
+                          AND {_REL_VALIDITY_AS_OF}
                           AND (CAST(:believed_as_of AS timestamptz) IS NULL
                                OR (r.recorded_at <= :believed_as_of
                                    AND (r.invalidated_at IS NULL
@@ -134,9 +136,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                               CAST(:rel_types AS text[]) IS NULL
                               OR r.relationship_type = ANY(CAST(:rel_types AS text[]))
                          )
-                         AND (CAST(:as_of AS timestamptz) IS NULL
-                              OR ((r.valid_from IS NULL OR r.valid_from <= :as_of)
-                                  AND (r.valid_to IS NULL OR r.valid_to > :as_of)))
+                         AND {_REL_VALIDITY_AS_OF}
                          AND (CAST(:believed_as_of AS timestamptz) IS NULL
                               OR (r.recorded_at <= :believed_as_of
                                   AND (r.invalidated_at IS NULL
@@ -158,6 +158,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                     "rel_types": rel_types or None,
                     "statuses": statuses,
                     "as_of": as_of,
+                    "as_of_grain": as_of_grain or "unknown",
                     "believed_as_of": believed_as_of,
                     "max_depth": effective_depth,
                     "limit": fetch_limit,

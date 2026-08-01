@@ -37,6 +37,7 @@ def query_subject_facts(
     predicate: str | None = None,
     as_of: datetime | None = None,
     believed_as_of: datetime | None = None,
+    as_of_grain: str | None = None,
     limit: int = 50,
 ) -> dict:
     """Return the same payload shape as POST /tools/query_facts for one subject.
@@ -66,6 +67,7 @@ def query_subject_facts(
         statuses=statuses,
         as_of=as_of,
         believed_as_of=believed_as_of,
+        as_of_grain=as_of_grain,
     )
     facts: list[dict] = []
     for claim, evidence_doc_ids in rows:
@@ -93,6 +95,7 @@ def query_subject_facts(
         "predicate": predicate,
         "as_of": as_of.isoformat() if as_of else None,
         "believed_as_of": believed_as_of.isoformat() if believed_as_of else None,
+        "as_of_grain": as_of_grain,
         "facts": facts,
         "returned": len(facts),
         "truncated": truncated,

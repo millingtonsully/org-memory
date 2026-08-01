@@ -11,6 +11,7 @@ from org_memory.db.orm import Claim, Document, Entity, Relationship, utcnow
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import Principal
+from org_memory.services.temporality.grain import fact_matches_as_of, normalize_grain
 
 
 class GraphWritesMixin(GraphRepositoryBase):
@@ -195,6 +196,7 @@ class GraphWritesMixin(GraphRepositoryBase):
         status: str = "active",
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
     ) -> list[Relationship]:
         """Edges attached to a node. When as_of is provided, filter by validity window."""
         q = self._session.query(Relationship).filter(
@@ -205,18 +207,27 @@ class GraphWritesMixin(GraphRepositoryBase):
                 | (Relationship.to_type == node_type) & (Relationship.to_id == node_id)
             ),
         )
-        if as_of is not None:
-            q = q.filter(
-                (Relationship.valid_from.is_(None)) | (Relationship.valid_from <= as_of),
-                (Relationship.valid_to.is_(None)) | (Relationship.valid_to > as_of),
-            )
         if believed_as_of is not None:
             q = q.filter(
                 Relationship.recorded_at <= believed_as_of,
                 (Relationship.invalidated_at.is_(None))
                 | (Relationship.invalidated_at > believed_as_of),
             )
-        return q.order_by(Relationship.created_at).all()
+        rows = q.order_by(Relationship.created_at).all()
+        if as_of is None:
+            return rows
+        grain = normalize_grain(as_of_grain)
+        return [
+            rel
+            for rel in rows
+            if fact_matches_as_of(
+                valid_from=rel.valid_from,
+                valid_to=rel.valid_to,
+                fact_grain=rel.time_grain,
+                as_of=as_of,
+                query_grain=grain,
+            )
+        ]
 
     def relationships_for_viewer(
         self,
@@ -226,6 +237,7 @@ class GraphWritesMixin(GraphRepositoryBase):
         status: str = "active",
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
     ) -> list[tuple[Relationship, list[str]]]:
         """Return edges whose entire evidence set is visible to this viewer.
         """
@@ -236,6 +248,7 @@ class GraphWritesMixin(GraphRepositoryBase):
             status=status,
             as_of=as_of,
             believed_as_of=believed_as_of,
+            as_of_grain=as_of_grain,
         ):
             evidence = list(rel.evidence_doc_ids or [])
             if not evidence:
@@ -272,6 +285,7 @@ class GraphWritesMixin(GraphRepositoryBase):
         statuses: list[str] | None = None,
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
     ) -> list[Claim]:
         q = self._session.query(Claim).filter(
             Claim.workspace_id == self._ws,
@@ -280,17 +294,26 @@ class GraphWritesMixin(GraphRepositoryBase):
         )
         if statuses:
             q = q.filter(Claim.status.in_(statuses))
-        if as_of is not None:
-            q = q.filter(
-                (Claim.valid_from.is_(None)) | (Claim.valid_from <= as_of),
-                (Claim.valid_to.is_(None)) | (Claim.valid_to > as_of),
-            )
         if believed_as_of is not None:
             q = q.filter(
                 Claim.recorded_at <= believed_as_of,
                 (Claim.invalidated_at.is_(None)) | (Claim.invalidated_at > believed_as_of),
             )
-        return q.order_by(Claim.created_at.desc()).all()
+        rows = q.order_by(Claim.created_at.desc()).all()
+        if as_of is None:
+            return rows
+        grain = normalize_grain(as_of_grain)
+        return [
+            claim
+            for claim in rows
+            if fact_matches_as_of(
+                valid_from=claim.valid_from,
+                valid_to=claim.valid_to,
+                fact_grain=claim.time_grain,
+                as_of=as_of,
+                query_grain=grain,
+            )
+        ]
 
     def claims_for_viewer(
         self,
@@ -300,6 +323,7 @@ class GraphWritesMixin(GraphRepositoryBase):
         statuses: list[str] | None = None,
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
     ) -> list[tuple[Claim, list[str]]]:
         """Return claims whose *entire* evidence set is visible to this viewer.
         """
@@ -310,6 +334,7 @@ class GraphWritesMixin(GraphRepositoryBase):
             statuses=statuses,
             as_of=as_of,
             believed_as_of=believed_as_of,
+            as_of_grain=as_of_grain,
         ):
             evidence = list(claim.evidence_doc_ids or [])
             if not evidence:

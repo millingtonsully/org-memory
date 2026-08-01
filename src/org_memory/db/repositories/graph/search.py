@@ -9,17 +9,14 @@ from sqlalchemy import text as sql
 from org_memory.db.repositories._common import _document_visibility_filters_sql
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
+from org_memory.services.temporality.grain import validity_as_of_sql
 
 # Shared temporal predicates for claim and relationship legs.
 _VALIDITY_NOW = """
     (c.valid_from IS NULL OR c.valid_from <= now())
     AND (c.valid_to IS NULL OR c.valid_to > now())
 """
-_VALIDITY_AS_OF = """
-    (CAST(:as_of AS timestamptz) IS NULL
-     OR ((c.valid_from IS NULL OR c.valid_from <= :as_of)
-         AND (c.valid_to IS NULL OR c.valid_to > :as_of)))
-"""
+_VALIDITY_AS_OF = validity_as_of_sql("c")
 _BELIEF_AS_OF = """
     (CAST(:believed_as_of AS timestamptz) IS NULL
      OR (c.recorded_at <= :believed_as_of
@@ -30,11 +27,7 @@ _REL_VALIDITY_NOW = """
     (r.valid_from IS NULL OR r.valid_from <= now())
     AND (r.valid_to IS NULL OR r.valid_to > now())
 """
-_REL_VALIDITY_AS_OF = """
-    (CAST(:as_of AS timestamptz) IS NULL
-     OR ((r.valid_from IS NULL OR r.valid_from <= :as_of)
-         AND (r.valid_to IS NULL OR r.valid_to > :as_of)))
-"""
+_REL_VALIDITY_AS_OF = validity_as_of_sql("r")
 _REL_BELIEF_AS_OF = """
     (CAST(:believed_as_of AS timestamptz) IS NULL
      OR (r.recorded_at <= :believed_as_of
@@ -65,13 +58,15 @@ class GraphSearchMixin(GraphRepositoryBase):
         about_doc_ids: list[str] | None = None,
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
     ) -> list[dict]:
         """Keyword candidates filtered by evidence ACL and temporal axes in SQL.
 
         When ``as_of`` / ``believed_as_of`` are unset, only currently active and
         currently valid facts participate (hybrid "true now"). When either axis
         is set, active and superseded rows whose windows contain the point are
-        eligible — matching ``query_facts`` / ``paths_from``.
+        eligible — matching ``query_facts`` / ``paths_from``. ``as_of_grain``
+        selects month/quarter/year bucket overlap when the query is coarse.
         """
         temporal = as_of is not None or believed_as_of is not None
         statuses = ["active", "superseded"] if temporal else ["active"]
@@ -199,6 +194,7 @@ class GraphSearchMixin(GraphRepositoryBase):
                 "doc_id": doc_id,
                 "statuses": statuses,
                 "as_of": as_of,
+                "as_of_grain": as_of_grain or "unknown",
                 "believed_as_of": believed_as_of,
                 "limit": limit,
             },

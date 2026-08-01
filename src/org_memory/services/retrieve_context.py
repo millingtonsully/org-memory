@@ -99,6 +99,7 @@ class RetrieveContextService:
         temporal_plan = None
         effective_as_of = as_of
         effective_believed_as_of = believed_as_of
+        effective_as_of_grain: str | None = None
         diff_from: datetime | None = None
         diff_to: datetime | None = None
         diff_axis: Literal["world", "belief"] | None = None
@@ -121,6 +122,7 @@ class RetrieveContextService:
                     "truncated_tokens": False,
                 }
             if temporal_plan.axis == "world":
+                effective_as_of_grain = temporal_plan.grain
                 if temporal_plan.range_end is not None and temporal_plan.as_of is not None:
                     effective_as_of = temporal_plan.range_end
                     diff_from = temporal_plan.as_of
@@ -170,6 +172,7 @@ class RetrieveContextService:
                 tool_name="retrieve_context",
                 as_of=effective_as_of,
                 believed_as_of=effective_believed_as_of,
+                as_of_grain=effective_as_of_grain,
             )
 
         def run_graph() -> tuple[list[dict], list[dict], list[dict]]:
@@ -185,6 +188,7 @@ class RetrieveContextService:
                         principal=principal,
                         as_of=effective_as_of,
                         believed_as_of=effective_believed_as_of,
+                        as_of_grain=effective_as_of_grain,
                         limit=fact_limit_per_subject,
                     )
                 )
@@ -225,6 +229,7 @@ class RetrieveContextService:
                     limit=path_limit,
                     as_of=effective_as_of,
                     believed_as_of=effective_believed_as_of,
+                    as_of_grain=effective_as_of_grain,
                 )
                 paths_out.append(
                     {

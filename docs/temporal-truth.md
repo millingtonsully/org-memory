@@ -106,12 +106,11 @@ consistent read filters. Multi-valued predicates (`member_of`, skills) stay
 multi-valued. Ranking freshness and passage recency remain separate signals;
 they complement the ledger rather than replace supersession.
 
-**Next capabilities (separate waves).** Richer relative-time coverage, spend-gated
-intent assist when rules abstain, stronger connector `event_time` contracts,
-passage-side temporal filters, and a broader temporal gold set. Snapshot diff
-(“what changed between A and B”) ships as `diff_fact_snapshots` /
-`diff_subject_facts` / `POST /tools/diff_facts`, and compose includes
-`fact_diffs` when the intent plan carries `range_end`.
+**Next capabilities (separate waves).** Spend-gated intent assist when rules
+abstain, stronger connector `event_time` contracts, passage-side temporal
+filters, and a broader temporal gold set. Relative-time grounding and
+grain-aware as_of matching (fact `time_grain` expansion + query month/quarter/year
+buckets) ship with `services/temporality/grain.py`.
 
 ---
 
@@ -386,6 +385,7 @@ src/org_memory/services/temporality/
   __init__.py           # public: ground_fact_times, plan_temporal_query, diff_fact_snapshots
   types.py              # TemporalQueryPlan, GroundedInterval, TimeGrain
   grounding.py          # t_ref + extractor fields → GroundedInterval (pure)
+  grain.py              # grain expand + as_of match helpers + SQL fragment
   intent.py             # query text → TemporalQueryPlan (rules first)
   intent_llm.py         # spend-gated assist when rules abstain
   eager_close.py        # exclusive slot close after apply
@@ -446,7 +446,6 @@ wiring, README/model doc alignment, temporal gold cases.
 
 **Next waves (deeper temporal coverage)**
 
-- Broader relative-time rule table and grain-aware matching in SQL  
 - Spend-gated intent assist when rules abstain  
 - Connector contracts that guarantee sound `event_time`  
 - Passage-side temporal filters where the product needs document as-of  
