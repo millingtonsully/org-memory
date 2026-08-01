@@ -20,7 +20,8 @@ from org_memory.services.chunking import count_tokens
 from org_memory.services.facts_diff import diff_subject_facts
 from org_memory.services.facts_query import query_subject_facts
 from org_memory.services.retrieval import RetrievalService
-from org_memory.services.temporality import assist_temporal_query, plan_temporal_query
+from org_memory.services.temporality.intent import plan_temporal_query
+from org_memory.services.temporality.intent_llm import assist_temporal_query
 from org_memory.services.worldbuilder.resolution import SubjectResolver
 
 RetrieveMode = Literal["vector_first", "graph_first", "joint"]
@@ -153,6 +154,28 @@ class RetrieveContextService:
         ] or None
         about_doc_ids = resolved.get("about_doc_ids")
 
+        # Passage clocks: world as_of caps event_time; belief caps updated_at.
+        # Explicit host date_to / updated_to always win.
+        passage_date_to = date_to
+        passage_updated_to = updated_to
+        passage_temporal: dict[str, Any] = {
+            "event_time_to": None,
+            "updated_at_to": None,
+            "derived_from": None,
+        }
+        if passage_date_to is None and effective_as_of is not None:
+            passage_date_to = effective_as_of
+            passage_temporal["event_time_to"] = effective_as_of.isoformat()
+            passage_temporal["derived_from"] = "as_of"
+        if passage_updated_to is None and effective_believed_as_of is not None:
+            passage_updated_to = effective_believed_as_of
+            passage_temporal["updated_at_to"] = effective_believed_as_of.isoformat()
+            passage_temporal["derived_from"] = (
+                "believed_as_of"
+                if passage_temporal["derived_from"] is None
+                else "as_of+believed_as_of"
+            )
+
         search: SearchResponse | None = None
         structured_facts: list[dict] = []
         path_blocks: list[dict] = []
@@ -169,9 +192,9 @@ class RetrieveContextService:
                 about_person_ids=about_person_ids if with_about else None,
                 about_doc_ids=about_doc_ids if with_about else None,
                 date_from=date_from,
-                date_to=date_to,
+                date_to=passage_date_to,
                 updated_from=updated_from,
-                updated_to=updated_to,
+                updated_to=passage_updated_to,
                 doc_id=doc_id,
                 half_life_days=half_life_days,
                 min_decay=min_decay,
@@ -299,6 +322,7 @@ class RetrieveContextService:
             "temporal_plan": (
                 temporal_plan.to_diagnostics() if temporal_plan is not None else None
             ),
+            "passage_temporal": passage_temporal,
             "graph": {
                 "subject_count": len(subject_list),
                 "structured_fact_blocks": len(structured_facts),

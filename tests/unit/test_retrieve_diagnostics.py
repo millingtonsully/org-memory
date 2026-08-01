@@ -109,5 +109,54 @@ def test_retrieve_diagnostics_include_graph_and_search(monkeypatch) -> None:
         assert out["diagnostics"]["graph"]["subject_count"] == 1
         assert out["diagnostics"]["graph"]["paths_returned"] == 0
         assert out["diagnostics"]["packing"]["truncated_tokens"] is False
+        assert out["diagnostics"]["passage_temporal"]["derived_from"] is None
+    finally:
+        get_settings.cache_clear()
+
+
+def test_retrieve_derives_passage_date_to_from_as_of(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    from tests.conftest import apply_minimal_settings_env
+
+    from org_memory.core.settings import get_settings
+    from org_memory.domain.models import Principal, SearchResponse
+    from org_memory.services.retrieve_context import RetrieveContextService
+
+    apply_minimal_settings_env(monkeypatch, workspace_id="ws-passage-asof")
+    get_settings.cache_clear()
+    captured: dict = {}
+
+    class StubRetrieval:
+        def search(self, **kwargs):  # noqa: ANN003
+            captured.update(kwargs)
+            return SearchResponse(
+                query=kwargs["query"],
+                passages=[],
+                facts=[],
+                total_candidates=0,
+                reranked=False,
+                audit_id="a1",
+                diagnostics={},
+            )
+
+    try:
+        service = RetrieveContextService(
+            session=object(),  # type: ignore[arg-type]
+            retrieval=StubRetrieval(),  # type: ignore[arg-type]
+            graph=object(),  # type: ignore[arg-type]
+        )
+        as_of = datetime(2026, 3, 15, tzinfo=UTC)
+        out = service.retrieve(
+            principal=Principal(
+                principal_id="user:11111111-1111-1111-1111-111111111111"
+            ),
+            query="title in March",
+            mode="vector_first",
+            as_of=as_of,
+        )
+        assert captured["date_to"] == as_of
+        assert out["diagnostics"]["passage_temporal"]["derived_from"] == "as_of"
+        assert out["diagnostics"]["passage_temporal"]["event_time_to"] == as_of.isoformat()
     finally:
         get_settings.cache_clear()

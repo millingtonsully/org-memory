@@ -197,6 +197,8 @@ ambiguous, a spend-gated synthesis assist may resolve it (or leave ambiguity /
 surface vendor errors). Explicit host timestamps always win. Snapshot questions
 (“what changed between A and B”) produce a plan with `range_end`; compose then
 includes `fact_diffs`, and hosts can call `POST /tools/diff_facts` directly.
+World `as_of` also upper-bounds passage `event_time` (belief
+`believed_as_of` upper-bounds `updated_at`) when the host omits those filters.
 Schema `0001` indexes subject/endpoint plus temporal ranges. Storage:
 `docs/temporal-model.md`. Pipeline: `docs/temporal-truth.md`.
 

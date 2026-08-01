@@ -61,6 +61,8 @@ omits both axes, compose derives a temporal plan from the query text (see
 calls a spend-gated synthesis assist; vendor or spend failures surface rather
 than inventing an axis. Explicit timestamps from the host always win. When the
 plan is a snapshot pair (`range_end` set), compose also returns `fact_diffs`.
+World `as_of` also caps passage `event_time` (and belief `believed_as_of` caps
+passage `updated_at`) unless the host already set `date_to` / `updated_to`.
 Path responses include `truncated` (more paths than `limit`) and `capped`
 (request depth/limit was clamped to hard maxima).
 

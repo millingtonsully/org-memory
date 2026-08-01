@@ -8,7 +8,7 @@ from typing import Any
 
 from org_memory.core.errors import VendorAPIError
 from org_memory.db.engine import session_scope
-from org_memory.db.repositories import SpendRepository
+from org_memory.db.repositories.spend import SpendRepository
 from org_memory.services.temporality.grain import normalize_grain
 from org_memory.services.temporality.types import TemporalAxis, TemporalQueryPlan
 
