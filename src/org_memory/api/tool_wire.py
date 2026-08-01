@@ -84,6 +84,10 @@ def search_response_to_mcp(response: SearchResponse) -> McpToolResponse:
     payload = {
         "passages": [passage_to_kb_hit(p) for p in response.passages],
         "facts": [fact_to_kb_hit(f) for f in response.facts],
+        "diagnostics": response.diagnostics,
+        "total_candidates": response.total_candidates,
+        "reranked": response.reranked,
+        "audit_id": response.audit_id,
     }
     return McpToolResponse(
         content=[{"type": "text", "text": json.dumps(payload, separators=(",", ":"))}],

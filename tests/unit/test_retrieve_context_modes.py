@@ -45,13 +45,34 @@ class _StubRetrieval:
         return self._response
 
 
-class _EmptySession:
-    """SubjectResolver is unused when about= is omitted."""
+class _EmptyGraph:
+    def claims_for_viewer(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return []
+
+    def paths_from(self, **kwargs):  # noqa: ANN003
+        return {
+            "paths": [],
+            "returned": 0,
+            "limit": kwargs.get("limit", 20),
+            "max_depth": kwargs.get("max_depth", 2),
+            "truncated": False,
+            "capped": False,
+        }
+
+
+def _service(stub: _StubRetrieval | None = None) -> tuple[RetrieveContextService, _StubRetrieval]:
+    retrieval = stub or _StubRetrieval()
+    # Inject stub graph so CI unit jobs never load Settings / GraphRepository.
+    service = RetrieveContextService(
+        session=object(),  # type: ignore[arg-type]
+        retrieval=retrieval,  # type: ignore[arg-type]
+        graph=_EmptyGraph(),  # type: ignore[arg-type]
+    )
+    return service, retrieval
 
 
 def test_vector_first_without_subjects_skips_about_scope() -> None:
-    stub = _StubRetrieval()
-    service = RetrieveContextService(session=_EmptySession(), retrieval=stub)  # type: ignore[arg-type]
+    service, stub = _service()
     out = service.retrieve(
         principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
         query="budget process",
@@ -69,8 +90,7 @@ def test_vector_first_without_subjects_skips_about_scope() -> None:
 
 
 def test_graph_first_requires_subjects() -> None:
-    stub = _StubRetrieval()
-    service = RetrieveContextService(session=_EmptySession(), retrieval=stub)  # type: ignore[arg-type]
+    service, stub = _service()
     with pytest.raises(ValueError, match="graph_first requires"):
         service.retrieve(
             principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
@@ -81,41 +101,32 @@ def test_graph_first_requires_subjects() -> None:
     assert stub.calls == []
 
 
-def test_joint_with_person_subject_scopes_search() -> None:
-    stub = _StubRetrieval()
-    service = RetrieveContextService(session=_EmptySession(), retrieval=stub)  # type: ignore[arg-type]
-    person_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    # Avoid real GraphRepository: monkeypatch run path by using empty graph methods.
-    class _EmptyGraph:
-        def claims_for_viewer(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            return []
+def test_joint_with_person_subject_scopes_search(monkeypatch) -> None:
+    from tests.conftest import apply_minimal_settings_env
 
-        def paths_from(self, **kwargs):  # noqa: ANN003
-            return {
-                "paths": [],
-                "returned": 0,
-                "limit": kwargs.get("limit", 20),
-                "max_depth": kwargs.get("max_depth", 2),
-                "truncated": False,
-                "capped": False,
-            }
+    from org_memory.core.settings import get_settings
 
-    service._graph = _EmptyGraph()  # type: ignore[assignment]
-    out = service.retrieve(
-        principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
-        query="reports",
-        mode="joint",
-        subjects=[SubjectRef(type="person", id=person_id)],
-    )
-    assert out["subjects"] == [{"type": "person", "id": person_id}]
-    assert stub.calls[0]["about_person_ids"] == [person_id]
-    assert out["structured_facts"][0]["returned"] == 0
-    assert out["paths"][0]["returned"] == 0
+    apply_minimal_settings_env(monkeypatch, workspace_id="ws-retrieve-joint")
+    get_settings.cache_clear()
+    try:
+        service, stub = _service()
+        person_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        out = service.retrieve(
+            principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
+            query="reports",
+            mode="joint",
+            subjects=[SubjectRef(type="person", id=person_id)],
+        )
+        assert out["subjects"] == [{"type": "person", "id": person_id}]
+        assert stub.calls[0]["about_person_ids"] == [person_id]
+        assert out["structured_facts"][0]["returned"] == 0
+        assert out["paths"][0]["returned"] == 0
+    finally:
+        get_settings.cache_clear()
 
 
 def test_unknown_mode_rejected() -> None:
-    stub = _StubRetrieval()
-    service = RetrieveContextService(session=_EmptySession(), retrieval=stub)  # type: ignore[arg-type]
+    service, _stub = _service()
     with pytest.raises(ValueError, match="unsupported retrieve mode"):
         service.retrieve(
             principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
@@ -134,5 +145,4 @@ def test_graph_first_token_priority_keeps_structured_longer() -> None:
     }
     out = _apply_token_budget(payload, max_tokens=80, mode="graph_first")
     assert out["truncated_tokens"] is True
-    # graph_first trims passages before structured_facts
     assert len(out["passages"]) <= len(payload["passages"])

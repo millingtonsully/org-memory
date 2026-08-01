@@ -237,3 +237,10 @@ class SearchResponse(BaseModel):
     total_candidates: int
     reranked: bool
     audit_id: str = Field(description="retrieval audit row id")
+    diagnostics: dict = Field(
+        default_factory=dict,
+        description=(
+            "Channel counts and ranking path metadata. Counts are over "
+            "viewer-visible candidates only — never enumerates denied docs."
+        ),
+    )

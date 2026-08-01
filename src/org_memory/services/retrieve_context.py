@@ -39,8 +39,19 @@ class RetrieveContextService:
     ):
         self._session = session
         self._retrieval = retrieval
-        self._graph = graph or GraphRepository(session)
-        self._resolver = SubjectResolver(session)
+        # Lazy: unit tests can inject a stub graph and never touch Settings.
+        self._graph = graph
+        self._resolver: SubjectResolver | None = None
+
+    def _require_graph(self) -> GraphRepository:
+        if self._graph is None:
+            self._graph = GraphRepository(self._session)
+        return self._graph
+
+    def _require_resolver(self) -> SubjectResolver:
+        if self._resolver is None:
+            self._resolver = SubjectResolver(self._session)
+        return self._resolver
 
     def retrieve(
         self,
@@ -118,7 +129,7 @@ class RetrieveContextService:
             for subject in subject_list:
                 facts_out.append(
                     query_subject_facts(
-                        self._graph,
+                        self._require_graph(),
                         subject_type=subject.type,
                         subject_id=subject.id,
                         principal=principal,
@@ -127,7 +138,7 @@ class RetrieveContextService:
                         limit=fact_limit_per_subject,
                     )
                 )
-                path_result = self._graph.paths_from(
+                path_result = self._require_graph().paths_from(
                     start_type=subject.type,
                     start_id=subject.id,
                     principal=principal,
@@ -187,6 +198,35 @@ class RetrieveContextService:
         }
         if max_tokens is not None:
             payload = _apply_token_budget(payload, max_tokens=max_tokens, mode=mode)
+        payload["diagnostics"] = {
+            "search": dict(search.diagnostics or {}),
+            "graph": {
+                "subject_count": len(subject_list),
+                "structured_fact_blocks": len(structured_facts),
+                "structured_facts_returned": sum(
+                    int(block.get("returned") or 0) for block in structured_facts
+                ),
+                "structured_facts_truncated_any": any(
+                    bool(block.get("truncated")) for block in structured_facts
+                ),
+                "path_blocks": len(path_blocks),
+                "paths_returned": sum(
+                    int(block.get("returned") or 0) for block in path_blocks
+                ),
+                "paths_truncated_any": any(
+                    bool(block.get("truncated")) for block in path_blocks
+                ),
+                "paths_capped_any": any(
+                    bool(block.get("capped")) for block in path_blocks
+                ),
+                "path_max_depth_requested": path_max_depth,
+                "path_limit_requested": path_limit,
+            },
+            "packing": {
+                "max_tokens": max_tokens,
+                "truncated_tokens": bool(payload.get("truncated_tokens")),
+            },
+        }
         return payload
 
     def _resolve_subjects(
@@ -206,7 +246,7 @@ class RetrieveContextService:
 
         about_doc_ids: list[str] | None = None
         if about and about.strip():
-            resolved = self._resolver.resolve_about_subject(principal, about.strip())
+            resolved = self._require_resolver().resolve_about_subject(principal, about.strip())
             if resolved.get("kind") == "ambiguous":
                 return {
                     "status": "ambiguous",

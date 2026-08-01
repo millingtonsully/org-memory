@@ -26,6 +26,82 @@ from org_memory.services.ranking import recency_multiplier, rrf_fuse
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
 
+def _filter_diagnostics(
+    *,
+    source_type: str | None,
+    source_system: str | None,
+    author: str | None,
+    author_canonical_entity_id: str | None,
+    about_person_ids: list[str] | None,
+    about_doc_ids: list[str] | None,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    updated_from: datetime | None,
+    updated_to: datetime | None,
+    doc_id: str | None,
+) -> dict:
+    """Active request filters only — never lists of denied document ids."""
+    return {
+        "source_type": source_type,
+        "source_system": source_system,
+        "author": author,
+        "author_canonical_entity_id": author_canonical_entity_id,
+        "about_person_count": len(about_person_ids or []),
+        "about_doc_count": len(about_doc_ids or []),
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "updated_from": updated_from.isoformat() if updated_from else None,
+        "updated_to": updated_to.isoformat() if updated_to else None,
+        "doc_id": doc_id,
+    }
+
+
+def build_search_diagnostics(
+    *,
+    mode: str,
+    limit: int,
+    candidate_pool: int,
+    rrf_k: int,
+    vector_count: int,
+    keyword_count: int,
+    fact_count: int,
+    fused_count: int,
+    shortlist_count: int,
+    returned_passages: int,
+    returned_facts: int,
+    parent_dedupe_removed: int,
+    reranked: bool,
+    rerank_skipped_reason: str | None,
+    filters: dict,
+) -> dict:
+    """Assemble channel/ranking diagnostics safe to return to agents."""
+    return {
+        "mode": mode,
+        "limit": limit,
+        "candidate_pool": candidate_pool,
+        "rrf_k": rrf_k,
+        "channels": {
+            "vector_candidates": vector_count,
+            "keyword_candidates": keyword_count,
+            "fact_candidates": fact_count,
+        },
+        "fusion": {
+            "fused_candidates": fused_count,
+            "shortlist": shortlist_count,
+        },
+        "rerank": {
+            "applied": reranked,
+            "skipped_reason": rerank_skipped_reason,
+        },
+        "returned": {
+            "passages": returned_passages,
+            "facts": returned_facts,
+            "parent_dedupe_removed": parent_dedupe_removed,
+        },
+        "filters": filters,
+    }
+
+
 class RetrievalService:
     def __init__(
         self,
@@ -123,6 +199,35 @@ class RetrievalService:
                     audit_id=audit_id,
                     total_candidates=0,
                     reranked=False,
+                    diagnostics=build_search_diagnostics(
+                        mode=mode,
+                        limit=limit,
+                        candidate_pool=candidate_pool,
+                        rrf_k=settings.rrf_k,
+                        vector_count=0,
+                        keyword_count=0,
+                        fact_count=0,
+                        fused_count=0,
+                        shortlist_count=0,
+                        returned_passages=0,
+                        returned_facts=0,
+                        parent_dedupe_removed=0,
+                        reranked=False,
+                        rerank_skipped_reason="unknown_canonical_author",
+                        filters=_filter_diagnostics(
+                            source_type=source_type,
+                            source_system=source_system,
+                            author=author,
+                            author_canonical_entity_id=author_canonical_entity_id,
+                            about_person_ids=about_person_ids,
+                            about_doc_ids=about_doc_ids,
+                            date_from=date_from,
+                            date_to=date_to,
+                            updated_from=updated_from,
+                            updated_to=updated_to,
+                            doc_id=doc_id,
+                        ),
+                    ),
                 )
             author_patterns = None
         vector_hits: list = []
@@ -207,6 +312,35 @@ class RetrievalService:
                 total_candidates=0,
                 reranked=False,
                 audit_id=audit_id,
+                diagnostics=build_search_diagnostics(
+                    mode=mode,
+                    limit=limit,
+                    candidate_pool=candidate_pool,
+                    rrf_k=settings.rrf_k,
+                    vector_count=len(vector_hits),
+                    keyword_count=len(keyword_hits),
+                    fact_count=len(fact_hits),
+                    fused_count=0,
+                    shortlist_count=0,
+                    returned_passages=0,
+                    returned_facts=0,
+                    parent_dedupe_removed=0,
+                    reranked=False,
+                    rerank_skipped_reason="no_visible_candidates",
+                    filters=_filter_diagnostics(
+                        source_type=source_type,
+                        source_system=source_system,
+                        author=author,
+                        author_canonical_entity_id=author_canonical_entity_id,
+                        about_person_ids=about_person_ids,
+                        about_doc_ids=about_doc_ids,
+                        date_from=date_from,
+                        date_to=date_to,
+                        updated_from=updated_from,
+                        updated_to=updated_to,
+                        doc_id=doc_id,
+                    ),
+                ),
             )
 
         chunk_fused_lists = [
@@ -252,6 +386,7 @@ class RetrievalService:
             final_ids = shortlist_ids[:limit]
             score_by_id = {item_id: decayed[item_id] for item_id in final_ids}
             did_rerank = False
+            rerank_skipped_reason = "shortlist_within_limit"
         else:
             documents = [
                 (
@@ -274,6 +409,7 @@ class RetrievalService:
                 )[:limit]
             ]
             did_rerank = True
+            rerank_skipped_reason = None
 
         final_chunk_ids = [
             item_id.removeprefix("chunk:") for item_id in final_ids if item_id.startswith("chunk:")
@@ -291,6 +427,7 @@ class RetrievalService:
                 continue
             seen_parents.add(parent_key)
             deduped_chunk_ids.append(cid)
+        parent_dedupe_removed = len(final_chunk_ids) - len(deduped_chunk_ids)
         final_chunk_ids = deduped_chunk_ids
 
         passages = [
@@ -361,4 +498,33 @@ class RetrievalService:
             total_candidates=len(by_id) + len(facts_by_id),
             reranked=did_rerank,
             audit_id=audit_id,
+            diagnostics=build_search_diagnostics(
+                mode=mode,
+                limit=limit,
+                candidate_pool=candidate_pool,
+                rrf_k=settings.rrf_k,
+                vector_count=len(vector_hits),
+                keyword_count=len(keyword_hits),
+                fact_count=len(fact_hits),
+                fused_count=len(fused),
+                shortlist_count=len(shortlist_ids),
+                returned_passages=len(passages),
+                returned_facts=len(facts),
+                parent_dedupe_removed=parent_dedupe_removed,
+                reranked=did_rerank,
+                rerank_skipped_reason=rerank_skipped_reason,
+                filters=_filter_diagnostics(
+                    source_type=source_type,
+                    source_system=source_system,
+                    author=author,
+                    author_canonical_entity_id=author_canonical_entity_id,
+                    about_person_ids=about_person_ids,
+                    about_doc_ids=about_doc_ids,
+                    date_from=date_from,
+                    date_to=date_to,
+                    updated_from=updated_from,
+                    updated_to=updated_to,
+                    doc_id=doc_id,
+                ),
+            ),
         )

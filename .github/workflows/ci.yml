@@ -20,6 +20,20 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
+    # Minimal Settings so unit tests that touch get_settings() can construct.
+    # Values are fake; verify never opens Postgres or vendor APIs.
+    env:
+      DATABASE_URL: postgresql+psycopg://org_memory:org_memory@localhost:5432/org_memory
+      WORKSPACE_ID: ci-workspace
+      SERVICE_API_KEY: ci-service-key
+      EMBEDDING_API_KEY: ci-embed-key
+      RERANK_API_KEY: ci-rerank-key
+      OBJECT_STORE_BACKEND: supabase
+      SUPABASE_PROJECT_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ci-service-role
+      RETENTION_DAYS: "30"
+      SPEND_ALERT_TOKENS_MONTHLY: "1000"
+      SPEND_HARD_LIMIT_TOKENS_MONTHLY: "2000"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

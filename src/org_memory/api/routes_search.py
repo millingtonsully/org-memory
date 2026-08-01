@@ -131,6 +131,7 @@ def worldbuilder_kb(
             "audit_id": result.audit_id,
             "total_candidates": result.total_candidates,
             "reranked": result.reranked,
+            "diagnostics": result.diagnostics,
             "facts": [f.model_dump(mode="json") for f in result.facts],
         },
     )
