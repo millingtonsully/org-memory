@@ -14,6 +14,16 @@
       "format": "date-time",
       "description": "World-time point for validity-window lookup. Omit for currently active open-interval claims."
     },
+    "believed_as_of": {
+      "type": "string",
+      "format": "date-time",
+      "description": "System-time point: what the service believed then."
+    },
+    "as_of_grain": {
+      "type": "string",
+      "enum": ["day", "month", "quarter", "year", "unknown"],
+      "description": "World-time grain for as_of matching (month/quarter/year use calendar-bucket overlap)."
+    },
     "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}
   },
   "additionalProperties": false

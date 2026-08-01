@@ -106,9 +106,10 @@ consistent read filters. Multi-valued predicates (`member_of`, skills) stay
 multi-valued. Ranking freshness and passage recency remain separate signals;
 they complement the ledger rather than replace supersession.
 
-**Next capabilities (separate waves).** Temporal gold coverage now includes
-current winner, NL world-axis, belief-axis, and multi-valued `member_of`
-cases in `evals/retrieval/gold_set.json`.
+**Shipped temporal coverage.** Temporal gold includes current winner, NL
+world-axis, belief-axis, and multi-valued `member_of` cases in
+`evals/retrieval/gold_set.json`. Remaining product depth (snapshot-diff live
+scoring, narrative multi-hop time) is listed under next waves.
 
 ---
 
@@ -346,12 +347,14 @@ planted vectors remain appropriate for retrieval wiring tests elsewhere.
 
 | Capability | Home |
 | ---------- | ---- |
-| `services/temporality/` package | Grounding, intent, eager-close orchestration |
+| `services/temporality/` package | Grounding, grain match, intent, eager-close, diff |
 | Structured time fields on extract | Prompt + `grounding.py` |
 | Eager exclusive supersession on apply | `eager_close.py` from `extraction_apply` |
-| NL → `TemporalQueryPlan` in compose | `intent.py` from `retrieve_context` |
-| `time_grain` on facts | Nullable column in squashed `0001` (or interim JSON until the column lands) |
-| Temporal gold cases | Eval / postgres fixtures for current, world, and belief |
+| NL → `TemporalQueryPlan` in compose | `intent.py`; spend-gated `intent_llm.py` on ambiguity |
+| `time_grain` on facts | Column in squashed `0001`; ORM aligned |
+| Snapshot diff | `diff.py` / `facts_diff.py` / `POST /tools/diff_facts` |
+| Passage temporal caps | `retrieve_context` derives `date_to` / `updated_to` |
+| Temporal gold cases | `evals/retrieval/gold_set.json` (current, world, belief, multi) |
 
 Ledger filters, ontology flags, deterministic ranking, and async conflict
 resolution are already in place and stay the foundation.
@@ -380,12 +383,12 @@ resolution are already in place and stay the foundation.
 
 ```text
 src/org_memory/services/temporality/
-  __init__.py           # public: ground_fact_times, plan_temporal_query, diff_fact_snapshots
+  __init__.py           # light exports (avoid cycles with graph → grain)
   types.py              # TemporalQueryPlan, GroundedInterval, TimeGrain
   grounding.py          # t_ref + extractor fields → GroundedInterval (pure)
   grain.py              # grain expand + as_of match helpers + SQL fragment
   intent.py             # query text → TemporalQueryPlan (rules first)
-  intent_llm.py         # spend-gated assist when rules abstain
+  intent_llm.py         # spend-gated assist; import as leaf module
   eager_close.py        # exclusive slot close after apply
   diff.py               # pure snapshot classify (added/removed/changed)
 
@@ -398,7 +401,9 @@ src/org_memory/domain/fact_lifecycle.py   # ranking / transitions (unchanged hom
   orchestration that needs graph repositories.  
 - **`extraction_apply.py`** calls grounding + eager_close.  
 - **`retrieve_context.py`** calls `plan_temporal_query` when axes are omitted;
-  when the plan has `range_end`, compose also returns `fact_diffs`.  
+  on ambiguous plans calls `assist_temporal_query`; when the plan has
+  `range_end`, compose also returns `fact_diffs`; world/belief points cap
+  passage clocks unless the host set filters.  
 - **`POST /tools/diff_facts`** is the snapshot-diff primitive.  
 - **Workers/conflicts** remain the async safety net and keep using the same
   ranking helpers.

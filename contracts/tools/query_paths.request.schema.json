@@ -10,9 +10,14 @@
       "items": {"type": "string"},
       "default": []
     },
-    "max_depth": {"type": "integer", "minimum": 1, "maximum": 3, "default": 2},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
-    "as_of": {"type": "string", "format": "date-time"}
+    "max_depth": {"type": "integer", "minimum": 1, "maximum": 10, "default": 2},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+    "as_of": {"type": "string", "format": "date-time"},
+    "believed_as_of": {"type": "string", "format": "date-time"},
+    "as_of_grain": {
+      "type": "string",
+      "enum": ["day", "month", "quarter", "year", "unknown"]
+    }
   },
   "additionalProperties": false
 }

@@ -241,6 +241,7 @@ schemas), `config/taxonomy_registry/` (live ontology instances),
 | `services/retrieve_context.py` | Compose search + facts + paths; packing |
 | `services/facts_query.py` | Shared subject-fact fetch used by HTTP facts and retrieve |
 | `services/facts_diff.py` | Two-snapshot subject fact diff (world or belief) |
+| `services/temporality/` | Grounding, grain match, intent (+ LLM assist), eager close, diff |
 | `services/ranking.py` | RRF / score helpers with deterministic ties |
 | `services/extraction.py` | LLM extract loop + apply entities/claims/relationships |
 | `services/extraction_windows.py` | Pure overlapping window split for long documents |
