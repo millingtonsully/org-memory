@@ -34,8 +34,7 @@ The axes answer different questions:
 Optional `time_grain` on claims and relationships (`day`, `month`, `quarter`,
 `year`, or `unknown`) records how precise the source was. World-time matching
 respects grain (for example, “in March” uses month containment) so the ledger
-does not pretend day-level precision the evidence never had. Grain lands with
-the temporal truth pipeline ([`temporal-truth.md`](temporal-truth.md)).
+does not pretend day-level precision the evidence never had.
 
 ## Query surface
 
@@ -48,12 +47,11 @@ the temporal truth pipeline ([`temporal-truth.md`](temporal-truth.md)).
   service would have returned at that moment.
 - Omitting both returns currently active facts with open validity.
 
-`retrieve_context` accepts the same parameters. Explicit timestamps from the
-host always win. When both axes are omitted, compose derives a temporal plan
-from the query text once the intent layer is wired (see
-[`temporal-truth.md`](temporal-truth.md)). Path responses include `truncated`
-(more paths than `limit`) and `capped` (request depth/limit was clamped to
-hard maxima).
+`retrieve_context` accepts the same parameters. When the caller omits both
+axes, compose derives a temporal plan from the query text (see
+[`temporal-truth.md`](temporal-truth.md)). Explicit timestamps from the host
+always win. Path responses include `truncated` (more paths than `limit`) and
+`capped` (request depth/limit was clamped to hard maxima).
 
 ## Lifecycle and supersession
 

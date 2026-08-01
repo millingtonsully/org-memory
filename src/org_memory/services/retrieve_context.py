@@ -19,6 +19,7 @@ from org_memory.domain.models import Principal, SearchResponse
 from org_memory.services.chunking import count_tokens
 from org_memory.services.facts_query import query_subject_facts
 from org_memory.services.retrieval import RetrievalService
+from org_memory.services.temporality import plan_temporal_query
 from org_memory.services.worldbuilder.resolution import SubjectResolver
 
 RetrieveMode = Literal["vector_first", "graph_first", "joint"]
@@ -94,6 +95,31 @@ class RetrieveContextService:
                 "(pass subjects[] or about=)."
             )
 
+        temporal_plan = None
+        effective_as_of = as_of
+        effective_believed_as_of = believed_as_of
+        if as_of is None and believed_as_of is None:
+            temporal_plan = plan_temporal_query(query)
+            if temporal_plan.status == "ambiguous":
+                return {
+                    "status": "ambiguous",
+                    "detail": "temporal_axis_ambiguous",
+                    "temporal_plan": temporal_plan.to_diagnostics(),
+                    "disambiguation": [],
+                    "query": query,
+                    "mode": mode,
+                    "subjects": [{"type": s.type, "id": s.id} for s in subject_list],
+                    "passages": [],
+                    "search_facts": [],
+                    "structured_facts": [],
+                    "paths": [],
+                    "truncated_tokens": False,
+                }
+            if temporal_plan.axis == "world":
+                effective_as_of = temporal_plan.as_of
+            elif temporal_plan.axis == "belief":
+                effective_believed_as_of = temporal_plan.believed_as_of
+
         about_person_ids = [
             s.id for s in subject_list if s.type == "person"
         ] or None
@@ -121,8 +147,8 @@ class RetrieveContextService:
                 half_life_days=half_life_days,
                 min_decay=min_decay,
                 tool_name="retrieve_context",
-                as_of=as_of,
-                believed_as_of=believed_as_of,
+                as_of=effective_as_of,
+                believed_as_of=effective_believed_as_of,
             )
 
         def run_graph() -> tuple[list[dict], list[dict]]:
@@ -135,8 +161,8 @@ class RetrieveContextService:
                         subject_type=subject.type,
                         subject_id=subject.id,
                         principal=principal,
-                        as_of=as_of,
-                        believed_as_of=believed_as_of,
+                        as_of=effective_as_of,
+                        believed_as_of=effective_believed_as_of,
                         limit=fact_limit_per_subject,
                     )
                 )
@@ -147,8 +173,8 @@ class RetrieveContextService:
                     relationship_types=relationship_types,
                     max_depth=path_max_depth,
                     limit=path_limit,
-                    as_of=as_of,
-                    believed_as_of=believed_as_of,
+                    as_of=effective_as_of,
+                    believed_as_of=effective_believed_as_of,
                 )
                 paths_out.append(
                     {
@@ -159,9 +185,13 @@ class RetrieveContextService:
                         "max_depth": path_result["max_depth"],
                         "truncated": path_result["truncated"],
                         "capped": path_result["capped"],
-                        "as_of": as_of.isoformat() if as_of else None,
+                        "as_of": (
+                            effective_as_of.isoformat() if effective_as_of else None
+                        ),
                         "believed_as_of": (
-                            believed_as_of.isoformat() if believed_as_of else None
+                            effective_believed_as_of.isoformat()
+                            if effective_believed_as_of
+                            else None
                         ),
                     }
                 )
@@ -191,9 +221,11 @@ class RetrieveContextService:
             "total_candidates": search.total_candidates,
             "reranked": search.reranked,
             "audit_id": search.audit_id,
-            "as_of": as_of.isoformat() if as_of else None,
+            "as_of": effective_as_of.isoformat() if effective_as_of else None,
             "believed_as_of": (
-                believed_as_of.isoformat() if believed_as_of else None
+                effective_believed_as_of.isoformat()
+                if effective_believed_as_of
+                else None
             ),
             "truncated_tokens": False,
             "max_tokens": max_tokens,
@@ -202,6 +234,9 @@ class RetrieveContextService:
             payload = _apply_token_budget(payload, max_tokens=max_tokens, mode=mode)
         payload["diagnostics"] = {
             "search": dict(search.diagnostics or {}),
+            "temporal_plan": (
+                temporal_plan.to_diagnostics() if temporal_plan is not None else None
+            ),
             "graph": {
                 "subject_count": len(subject_list),
                 "structured_fact_blocks": len(structured_facts),

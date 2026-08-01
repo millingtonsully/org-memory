@@ -105,6 +105,33 @@ def test_retrieve_passes_temporal_axes_to_search() -> None:
     assert stub.calls[0]["believed_as_of"] == believed
 
 
+def test_retrieve_derives_world_as_of_from_query() -> None:
+    service, stub = _service()
+    out = service.retrieve(
+        principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
+        query="What was Alice's title in March 2026?",
+        mode="vector_first",
+        subjects=[],
+    )
+    assert out.get("status") != "ambiguous"
+    assert stub.calls[0]["as_of"] == datetime(2026, 3, 15, tzinfo=UTC)
+    assert stub.calls[0]["believed_as_of"] is None
+    assert out["diagnostics"]["temporal_plan"]["axis"] == "world"
+
+
+def test_retrieve_ambiguous_temporal_returns_status() -> None:
+    service, stub = _service()
+    out = service.retrieve(
+        principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
+        query="What did we think before the correction?",
+        mode="vector_first",
+        subjects=[],
+    )
+    assert out["status"] == "ambiguous"
+    assert out["detail"] == "temporal_axis_ambiguous"
+    assert stub.calls == []
+
+
 def test_graph_first_requires_subjects() -> None:
     service, stub = _service()
     with pytest.raises(ValueError, match="graph_first requires"):
