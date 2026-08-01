@@ -317,9 +317,41 @@ python -m org_memory.workers.run
 
 | Marker / path | What it covers | Needs |
 | ------------- | -------------- | ----- |
-| `tests/unit/` (`not integration and not postgres`) | Ranking, retrieve modes, packing, extraction windows/ontology, worldbuilder profile structure, handlers smoke, wire shapes, settings | Nothing external |
+| `tests/unit/` (`not integration and not postgres`) | Ranking, retrieve modes, packing, extraction windows/ontology, worldbuilder profile structure, handlers smoke, wire shapes, settings, retrieval eval metrics/harness | Nothing external |
 | `tests/postgres/` (`-m postgres`) | ACL SQL, chunk embed carry-over, facts/paths temporal contracts, retrieve_context, worldbuilder, temporal indexes | `DATABASE_URL` |
 | `tests/integration/` | Real vendor calls when credentials exist | Vendor keys; skipped when absent |
+
+## Retrieval evaluation
+
+Gold questions and expected document/claim ids live in
+`evals/retrieval/gold_set.json`. Labels are evaluation-only.
+
+**Offline scoring** (you already have ranked ids):
+
+```bash
+python -m org_memory.eval.score_retrieval --predictions evals/retrieval/example_predictions.json
+```
+
+**Live eval** (seeds a hermetic workspace, runs `retrieve_context`, scores):
+
+```bash
+# DATABASE_URL required. Uses a fixture embedder (planted vectors), not a vendor.
+python -m org_memory.eval.run_live
+python -m org_memory.eval.run_live --predictions-out /tmp/preds.json
+```
+
+What `run_live` does:
+
+1. Creates an isolated `eval-*` workspace in Postgres.
+2. Seeds the gold documents, chunks (with planted embeddings), people/entities,
+   and claims with the ids named in the gold set.
+3. For each gold case, calls `retrieve_context` with the case query / mode /
+   subjects / `as_of`.
+4. Collects ranked `doc_ids` and `claim_ids`, optionally writes them, and
+   prints hit/recall/precision@k and MRR.
+
+Grow the gold set with real questions as you find failures. Re-seed and re-run
+before treating Step 12 retrieval changes as improvements.
 
 ```bash
 pytest -m "not integration and not postgres"          # default local / CI verify

@@ -1,0 +1,18 @@
+{
+  "title-change-world-time": {
+    "doc_ids": ["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
+    "claim_ids": ["claim:alice-title-engineer"]
+  },
+  "team-membership": {
+    "doc_ids": ["email:bob-onboarding", "notion:org-chart-q2"],
+    "claim_ids": []
+  },
+  "glossary-definition": {
+    "doc_ids": ["notion:glossary-carepod"],
+    "claim_ids": ["claim:carepod-definition"]
+  },
+  "reports-to-path": {
+    "doc_ids": ["hr:carol-manager-note"],
+    "claim_ids": ["claim:carol-reports-to-dan"]
+  }
+}

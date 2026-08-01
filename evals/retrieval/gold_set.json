@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "description": "Retrieval gold set for offline scoring and live eval seeding. Labels are evaluation-only.",
+  "cases": [
+    {
+      "case_id": "title-change-world-time",
+      "query": "What was Alice's title before the July promotion?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "as_of": "2026-06-01T00:00:00+00:00",
+      "expected_doc_ids": ["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
+      "expected_claim_ids": ["claim:alice-title-engineer"],
+      "k": 5,
+      "notes": "World-time question; prefer the pre-promotion claim and supporting docs."
+    },
+    {
+      "case_id": "team-membership",
+      "query": "Which team is Bob on?",
+      "mode": "vector_first",
+      "expected_doc_ids": ["email:bob-onboarding", "notion:org-chart-q2"],
+      "expected_claim_ids": [],
+      "k": 10,
+      "notes": "Passage-heavy; membership may appear in docs before structured claims."
+    },
+    {
+      "case_id": "glossary-definition",
+      "query": "What does CarePod mean here?",
+      "mode": "joint",
+      "subjects": [{"type": "glossary", "id": "eval-glossary-carepod"}],
+      "expected_doc_ids": ["notion:glossary-carepod"],
+      "expected_claim_ids": ["claim:carepod-definition"],
+      "k": 5,
+      "notes": "Glossary definition claim plus the source section."
+    },
+    {
+      "case_id": "reports-to-path",
+      "query": "Who does Carol report to?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-carol"}],
+      "expected_doc_ids": ["hr:carol-manager-note"],
+      "expected_claim_ids": ["claim:carol-reports-to-dan"],
+      "k": 5,
+      "notes": "Structured reporting claim; docs are supporting evidence."
+    }
+  ]
+}
