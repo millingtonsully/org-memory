@@ -10,6 +10,7 @@ from org_memory.core.settings import get_settings
 from org_memory.db.orm import Claim, Document, Relationship
 from org_memory.db.repositories import GraphRepository, PersonRepository
 from org_memory.domain.fact_lifecycle import FactStatus, status_for_confidence
+from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
 
@@ -75,6 +76,10 @@ class ExtractionApplyMixin:
             confidence = parse_confidence(item.get("confidence"))
             status = status_for_confidence(confidence, activation_confidence).value
             evidence_quote = str(item["evidence_quote"])
+            grounded = ground_fact_times(item, t_ref=doc.event_time)
+            if grounded is None:
+                summary["dropped_unverifiable"] += 1
+                continue
             self._graph.add_relationship(
                 Relationship(
                     workspace_id=doc.workspace_id,
@@ -93,7 +98,9 @@ class ExtractionApplyMixin:
                     origin_to_id=to_ref[1],
                     created_by="extraction",
                     decided_by=("automatic:confidence_gate" if status == "active" else ""),
-                    valid_from=doc.event_time,
+                    valid_from=grounded.valid_from,
+                    valid_to=grounded.valid_to,
+                    time_grain=grounded.time_grain,
                 )
             )
             summary["relationships"] += 1
@@ -107,6 +114,10 @@ class ExtractionApplyMixin:
             predicate = item.get("predicate", "").strip().lower()
             object_text = str(item.get("object", "")).strip()
             if subject is None or not predicate or not object_text:
+                continue
+            grounded = ground_fact_times(item, t_ref=doc.event_time)
+            if grounded is None:
+                summary["dropped_unverifiable"] += 1
                 continue
             if not registry.is_known_predicate(predicate):
                 # Persist as proposed-only untyped audit trail; never activate.
@@ -127,7 +138,9 @@ class ExtractionApplyMixin:
                         origin_subject_id=subject[1],
                         created_by="extraction:untyped",
                         decided_by="",
-                        valid_from=doc.event_time,
+                        valid_from=grounded.valid_from,
+                        valid_to=grounded.valid_to,
+                        time_grain=grounded.time_grain,
                     )
                 )
                 summary["claims"] += 1
@@ -154,7 +167,9 @@ class ExtractionApplyMixin:
                     origin_subject_id=subject[1],
                     created_by="extraction",
                     decided_by=("automatic:confidence_gate" if status == "active" else ""),
-                    valid_from=doc.event_time,
+                    valid_from=grounded.valid_from,
+                    valid_to=grounded.valid_to,
+                    time_grain=grounded.time_grain,
                 )
             )
             if stored.status == FactStatus.active.value:
@@ -218,6 +233,7 @@ class ExtractionApplyMixin:
                     created_by="extraction:glossary_seed",
                     decided_by=("automatic:confidence_gate" if status == "active" else ""),
                     valid_from=doc.event_time,
+                    time_grain="day",
                 )
             )
             if stored.status == FactStatus.active.value:

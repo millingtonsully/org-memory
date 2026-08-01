@@ -49,7 +49,11 @@ Return ONLY a JSON object with this exact shape (no markdown fences):
       "to": {{"type": "person|team|project|glossary", "name": "..."}},
       "relationship_type": "registry relationship_type key",
       "evidence_quote": "verbatim supporting text from this segment",
-      "confidence": 0.0-1.0
+      "confidence": 0.0-1.0,
+      "valid_from": "ISO-8601 instant or null",
+      "valid_to": "ISO-8601 instant or null",
+      "time_grain": "day|month|quarter|year|unknown",
+      "time_expression": "raw time phrase from the segment or empty"
     }}
   ],
   "claims": [
@@ -58,7 +62,11 @@ Return ONLY a JSON object with this exact shape (no markdown fences):
       "predicate": "registry predicate key",
       "object": "...",
       "evidence_quote": "verbatim supporting text from this segment",
-      "confidence": 0.0-1.0
+      "confidence": 0.0-1.0,
+      "valid_from": "ISO-8601 instant or null",
+      "valid_to": "ISO-8601 instant or null",
+      "time_grain": "day|month|quarter|year|unknown",
+      "time_expression": "raw time phrase from the segment or empty"
     }}
   ]
 }}
@@ -66,6 +74,10 @@ Rules:
 - Only extract observations explicitly supported by this segment. Do not infer
   an organizational relationship merely from co-occurrence.
 - evidence_quote is mandatory and must be copied verbatim from this segment.
+- Document reference time (t_ref) for relative phrases is provided in the
+  segment header. Prefer explicit dates in the text; otherwise leave
+  valid_from null so the service grounds against t_ref. time_grain must not
+  be finer than the evidence (e.g. "March" → month, not day).
 {schema_block}
 - Entity type guidance:
   - person: named humans (employees, contractors). Prefer claims/relationships over
@@ -108,7 +120,10 @@ class ExtractionService(ExtractionApplyMixin):
         mid-document failure retries only unfinished windows.
         """
         self.active_claim_slots = set()
-        header = f"Source: {doc.source_system} | Title: {doc.title or '(untitled)'}\n"
+        header = (
+            f"Source: {doc.source_system} | Title: {doc.title or '(untitled)'}\n"
+            f"Document reference time (t_ref): {doc.event_time.isoformat()}\n"
+        )
         if doc.author_display_name:
             header += f"Author: {doc.author_display_name}\n"
 
