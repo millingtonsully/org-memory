@@ -55,7 +55,7 @@
         "claim:alice-member-infra"
       ],
       "k": 5,
-      "notes": "Multi-valued member_of stays multi; both team claims are expected."
+      "notes": "Multi-valued team predicate stays multi; both team claims are expected."
     },
     {
       "case_id": "team-membership",

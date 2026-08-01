@@ -32,6 +32,8 @@ def _add_doc_with_chunk(
     embedder: EvalFixtureEmbedder,
     vector: list[float],
 ) -> None:
+    # Stamp clocks in the past so belief/world as_of filters in gold cases
+    # still surface these passages (updated_at / event_time <= query point).
     session.add(
         Document(
             doc_id=doc_id,
@@ -41,10 +43,12 @@ def _add_doc_with_chunk(
             source_type="eval",
             title=doc_id,
             rendered_text=text,
-            event_time=_EVENT,
+            event_time=_JAN,
+            ingested_at=_JAN,
+            updated_at=_JAN,
             org_visible=True,
             allowed_principals=[],
-            acl_event_time=_EVENT,
+            acl_event_time=_JAN,
         )
     )
     session.flush()
@@ -64,7 +68,8 @@ def _add_doc_with_chunk(
             source_type="eval",
             title=doc_id,
             author_display_name="",
-            event_time=_EVENT,
+            event_time=_JAN,
+            updated_at=_JAN,
             deep_link="",
             org_visible=True,
             allowed_principals=[],
@@ -266,7 +271,7 @@ def seed_gold_corpus(
             workspace_id=workspace_id,
             subject_type="person",
             subject_id=alice_id,
-            predicate="member_of",
+            predicate="team",
             object_text="Platform",
             recorded_at=_EVENT,
             confidence=0.9,
@@ -281,7 +286,7 @@ def seed_gold_corpus(
             workspace_id=workspace_id,
             subject_type="person",
             subject_id=alice_id,
-            predicate="member_of",
+            predicate="team",
             object_text="Infra",
             recorded_at=_EVENT,
             confidence=0.9,
