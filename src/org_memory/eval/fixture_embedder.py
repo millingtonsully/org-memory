@@ -44,7 +44,9 @@ class EvalFixtureEmbedder:
             vector = self._table.get(key)
             if vector is None:
                 raise VendorAPIError(
-                    f"eval embedder has no planted vector for text {key[:80]!r}"
+                    "eval-fixture-embedder",
+                    None,
+                    f"no planted vector for text {key[:80]!r}",
                 )
             vectors.append(list(vector))
         return vectors, 0
