@@ -3,12 +3,13 @@
 Profiles are synthesized read-only outputs. Categories: person, team, project,
 glossary. Every evidence path enforces the viewer's ACL.
 
-The package splits four concerns:
+The package splits five concerns:
 
 - ``service``: orchestration (resolve subject, gather evidence, synthesize)
 - ``resolution``: mapping names to people and entities under viewer ACL
 - ``profile_structure``: pure functions that parse, ground, and seed the
   structured profile JSON
+- ``synthesis``: cache, LLM call, and profile payload shaping
 - ``read_source``: loading cited documents and graph records under viewer ACL
 """
 

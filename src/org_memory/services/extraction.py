@@ -1,4 +1,7 @@
 """Extract entities, relationships, and claims from document text.
+
+Window splitting lives in ``extraction_windows``; this module owns the LLM
+loop and the apply path into the graph.
 """
 
 from __future__ import annotations
@@ -21,19 +24,11 @@ from org_memory.db.repositories import (
 )
 from org_memory.domain.fact_lifecycle import FactStatus, status_for_confidence
 from org_memory.ports.embedder import Embedder
+from org_memory.services.extraction_windows import split_windows
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
 logger = structlog.get_logger(__name__)
 
-# Extraction windows use a large char budget (~32k chars, roughly 8k tokens on
-# English prose). This is deliberately much larger than a retrieval child chunk:
-# complete extraction cost is linear in source length, but larger windows avoid
-# repeating input/output overhead.
-_WINDOW_TARGET_CHARS = 32000
-# Tail of each window repeated at the start of the next, so a fact split
-# across a boundary is seen whole at least once. Duplicated extractions are
-# deduped by the graph repositories.
-_WINDOW_OVERLAP_CHARS = 2000
 _MAX_DOCUMENT_CONTEXT_CHARS = 4000
 
 _EXTRACTION_SYSTEM_PROMPT_TEMPLATE = """You extract evidence-backed organizational observations.
@@ -92,45 +87,6 @@ Rules:
 - confidence reflects how explicitly the text supports the fact.
 - Prefer few high-quality extractions over many speculative ones.
 - Empty arrays are fine when the text contains no organizational facts."""
-
-
-def split_windows(text: str) -> list[str]:
-    """Split text into paragraph-aligned extraction windows covering ALL of it.
-
-    Windows target _WINDOW_TARGET_CHARS and carry _WINDOW_OVERLAP_CHARS of the
-    previous window's tail so boundary-spanning facts are seen whole. A single
-    paragraph longer than the target becomes its own window (never truncated).
-    """
-    text = text.strip()
-    if not text:
-        return []
-    if len(text) <= _WINDOW_TARGET_CHARS:
-        return [text]
-
-    paragraphs = [p for p in (part.strip() for part in text.split("\n\n")) if p]
-    windows: list[str] = []
-    current: list[str] = []
-    current_len = 0
-
-    def flush() -> None:
-        nonlocal current, current_len
-        if current:
-            windows.append("\n\n".join(current))
-            current = []
-            current_len = 0
-
-    for para in paragraphs:
-        if current and current_len + len(para) + 2 > _WINDOW_TARGET_CHARS:
-            tail = "\n\n".join(current)
-            flush()
-            # Overlap: seed the next window with the tail of the previous one.
-            overlap = tail[-_WINDOW_OVERLAP_CHARS:]
-            current = [overlap]
-            current_len = len(overlap) + 2
-        current.append(para)
-        current_len += len(para) + 2
-    flush()
-    return windows
 
 
 class ExtractionService:
