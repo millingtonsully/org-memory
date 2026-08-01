@@ -84,7 +84,7 @@ class ExtractionApplyMixin:
             if grounded is None:
                 summary["dropped_unverifiable"] += 1
                 continue
-            stored = self._graph.add_relationship(
+            stored_rel = self._graph.add_relationship(
                 Relationship(
                     workspace_id=doc.workspace_id,
                     from_type=from_ref[0],
@@ -107,8 +107,8 @@ class ExtractionApplyMixin:
                     time_grain=grounded.time_grain,
                 )
             )
-            if stored.status == FactStatus.active.value:
-                eager_close_relationship_slot(self._graph, stored)
+            if stored_rel.status == FactStatus.active.value:
+                eager_close_relationship_slot(self._graph, stored_rel)
             summary["relationships"] += 1
             summary[f"{status}_facts"] += 1
 
@@ -159,7 +159,7 @@ class ExtractionApplyMixin:
             confidence = parse_confidence(item.get("confidence"))
             status = status_for_confidence(confidence, activation_confidence).value
             evidence_quote = str(item["evidence_quote"])
-            stored = self._graph.add_claim(
+            stored_claim = self._graph.add_claim(
                 Claim(
                     workspace_id=doc.workspace_id,
                     subject_type=subject[0],
@@ -178,11 +178,15 @@ class ExtractionApplyMixin:
                     time_grain=grounded.time_grain,
                 )
             )
-            if stored.status == FactStatus.active.value:
+            if stored_claim.status == FactStatus.active.value:
                 self.active_claim_slots.add(
-                    (stored.subject_type, stored.subject_id, stored.predicate)
+                    (
+                        stored_claim.subject_type,
+                        stored_claim.subject_id,
+                        stored_claim.predicate,
+                    )
                 )
-                eager_close_claim_slot(self._graph, stored)
+                eager_close_claim_slot(self._graph, stored_claim)
             summary["claims"] += 1
             summary[f"{status}_facts"] += 1
 
@@ -225,7 +229,7 @@ class ExtractionApplyMixin:
                 continue
             confidence = min(0.85, activation_confidence + 0.05)
             status = status_for_confidence(confidence, activation_confidence).value
-            stored = self._graph.add_claim(
+            stored_claim = self._graph.add_claim(
                 Claim(
                     workspace_id=doc.workspace_id,
                     subject_type="glossary",
@@ -243,9 +247,9 @@ class ExtractionApplyMixin:
                     time_grain="day",
                 )
             )
-            if stored.status == FactStatus.active.value:
+            if stored_claim.status == FactStatus.active.value:
                 self.active_claim_slots.add(("glossary", entity_id, "definition"))
-                eager_close_claim_slot(self._graph, stored)
+                eager_close_claim_slot(self._graph, stored_claim)
             summary["claims"] += 1
             summary[f"{status}_facts"] += 1
 
