@@ -10,6 +10,10 @@ from org_memory.core.settings import get_settings
 from org_memory.db.orm import Claim, Document, Relationship
 from org_memory.db.repositories import GraphRepository, PersonRepository
 from org_memory.domain.fact_lifecycle import FactStatus, status_for_confidence
+from org_memory.services.temporality.eager_close import (
+    eager_close_claim_slot,
+    eager_close_relationship_slot,
+)
 from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
@@ -80,7 +84,7 @@ class ExtractionApplyMixin:
             if grounded is None:
                 summary["dropped_unverifiable"] += 1
                 continue
-            self._graph.add_relationship(
+            stored = self._graph.add_relationship(
                 Relationship(
                     workspace_id=doc.workspace_id,
                     from_type=from_ref[0],
@@ -103,6 +107,8 @@ class ExtractionApplyMixin:
                     time_grain=grounded.time_grain,
                 )
             )
+            if stored.status == FactStatus.active.value:
+                eager_close_relationship_slot(self._graph, stored)
             summary["relationships"] += 1
             summary[f"{status}_facts"] += 1
 
@@ -176,6 +182,7 @@ class ExtractionApplyMixin:
                 self.active_claim_slots.add(
                     (stored.subject_type, stored.subject_id, stored.predicate)
                 )
+                eager_close_claim_slot(self._graph, stored)
             summary["claims"] += 1
             summary[f"{status}_facts"] += 1
 
@@ -238,6 +245,7 @@ class ExtractionApplyMixin:
             )
             if stored.status == FactStatus.active.value:
                 self.active_claim_slots.add(("glossary", entity_id, "definition"))
+                eager_close_claim_slot(self._graph, stored)
             summary["claims"] += 1
             summary[f"{status}_facts"] += 1
 
