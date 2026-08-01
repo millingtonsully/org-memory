@@ -121,6 +121,7 @@ def get_retrieve_context_service(
         session=session,
         retrieval=retrieval,
         graph=GraphRepository(session),
+        synthesizer=get_synthesizer(),
     )
 
 

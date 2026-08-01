@@ -192,12 +192,13 @@ participates; `author` filters authorship. Those are distinct.
 `query_facts`, `query_paths`, and `retrieve_context` accept `as_of` and
 `believed_as_of`. When those axes are set, the hybrid fact channel inside
 `retrieve_context` uses the same windows (active + superseded). When both are
-omitted, compose derives a temporal plan from the query text; explicit host
-timestamps always win. Snapshot questions (“what changed between A and B”)
-produce a plan with `range_end`; compose then includes `fact_diffs`, and
-hosts can call `POST /tools/diff_facts` directly. Schema `0001` indexes
-subject/endpoint plus temporal ranges. Storage: `docs/temporal-model.md`.
-Pipeline: `docs/temporal-truth.md`.
+omitted, compose derives a temporal plan from the query text; when that plan is
+ambiguous, a spend-gated synthesis assist may resolve it (or leave ambiguity /
+surface vendor errors). Explicit host timestamps always win. Snapshot questions
+(“what changed between A and B”) produce a plan with `range_end`; compose then
+includes `fact_diffs`, and hosts can call `POST /tools/diff_facts` directly.
+Schema `0001` indexes subject/endpoint plus temporal ranges. Storage:
+`docs/temporal-model.md`. Pipeline: `docs/temporal-truth.md`.
 
 Active facts also rank with exponential freshness
 (`FACT_FRESHNESS_HALF_LIFE_DAYS` / `FACT_FRESHNESS_MIN_DECAY`; per-predicate

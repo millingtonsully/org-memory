@@ -20,7 +20,7 @@ from org_memory.services.chunking import count_tokens
 from org_memory.services.facts_diff import diff_subject_facts
 from org_memory.services.facts_query import query_subject_facts
 from org_memory.services.retrieval import RetrievalService
-from org_memory.services.temporality import plan_temporal_query
+from org_memory.services.temporality import assist_temporal_query, plan_temporal_query
 from org_memory.services.worldbuilder.resolution import SubjectResolver
 
 RetrieveMode = Literal["vector_first", "graph_first", "joint"]
@@ -38,11 +38,13 @@ class RetrieveContextService:
         session: Session,
         retrieval: RetrievalService,
         graph: GraphRepository | None = None,
+        synthesizer: Any | None = None,
     ):
         self._session = session
         self._retrieval = retrieval
         # Lazy: unit tests can inject a stub graph and never touch Settings.
         self._graph = graph
+        self._synthesizer = synthesizer
         self._resolver: SubjectResolver | None = None
 
     def _require_graph(self) -> GraphRepository:
@@ -105,6 +107,10 @@ class RetrieveContextService:
         diff_axis: Literal["world", "belief"] | None = None
         if as_of is None and believed_as_of is None:
             temporal_plan = plan_temporal_query(query)
+            if temporal_plan.status == "ambiguous" and self._synthesizer is not None:
+                temporal_plan = assist_temporal_query(
+                    query, temporal_plan, synthesizer=self._synthesizer
+                )
             if temporal_plan.status == "ambiguous":
                 return {
                     "status": "ambiguous",

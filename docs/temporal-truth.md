@@ -106,11 +106,11 @@ consistent read filters. Multi-valued predicates (`member_of`, skills) stay
 multi-valued. Ranking freshness and passage recency remain separate signals;
 they complement the ledger rather than replace supersession.
 
-**Next capabilities (separate waves).** Spend-gated intent assist when rules
-abstain, stronger connector `event_time` contracts, passage-side temporal
-filters, and a broader temporal gold set. Relative-time grounding and
-grain-aware as_of matching (fact `time_grain` expansion + query month/quarter/year
-buckets) ship with `services/temporality/grain.py`.
+**Next capabilities (separate waves).** Stronger connector `event_time`
+contracts, passage-side temporal filters, and a broader temporal gold set.
+Spend-gated intent assist runs when rule-based planning returns ambiguous
+(`services/temporality/intent_llm.py`), recorded under job class
+`temporal_intent`.
 
 ---
 
@@ -446,7 +446,6 @@ wiring, README/model doc alignment, temporal gold cases.
 
 **Next waves (deeper temporal coverage)**
 
-- Spend-gated intent assist when rules abstain  
 - Connector contracts that guarantee sound `event_time`  
 - Passage-side temporal filters where the product needs document as-of  
 - Broader temporal gold set (belief-axis live eval, diff cases) 

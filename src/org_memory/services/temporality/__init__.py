@@ -13,6 +13,10 @@ from org_memory.services.temporality.grain import (
 )
 from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.services.temporality.intent import plan_temporal_query
+from org_memory.services.temporality.intent_llm import (
+    assist_temporal_query,
+    plan_from_llm_payload,
+)
 from org_memory.services.temporality.types import (
     GroundedInterval,
     TemporalAxis,
@@ -25,10 +29,12 @@ __all__ = [
     "TemporalAxis",
     "TemporalQueryPlan",
     "TimeGrain",
+    "assist_temporal_query",
     "diff_fact_snapshots",
     "fact_matches_as_of",
     "ground_fact_times",
     "normalize_grain",
+    "plan_from_llm_payload",
     "plan_temporal_query",
     "validity_as_of_sql",
 ]

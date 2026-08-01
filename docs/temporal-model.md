@@ -57,10 +57,12 @@ unchanged, added, removed, or changed (exclusive predicates that swap values).
 
 `retrieve_context` accepts the same single-point parameters. When the caller
 omits both axes, compose derives a temporal plan from the query text (see
-[`temporal-truth.md`](temporal-truth.md)). Explicit timestamps from the host
-always win. When the plan is a snapshot pair (`range_end` set), compose also
-returns `fact_diffs`. Path responses include `truncated` (more paths than
-`limit`) and `capped` (request depth/limit was clamped to hard maxima).
+[`temporal-truth.md`](temporal-truth.md)). When rules return ambiguous, compose
+calls a spend-gated synthesis assist; vendor or spend failures surface rather
+than inventing an axis. Explicit timestamps from the host always win. When the
+plan is a snapshot pair (`range_end` set), compose also returns `fact_diffs`.
+Path responses include `truncated` (more paths than `limit`) and `capped`
+(request depth/limit was clamped to hard maxima).
 
 ## Lifecycle and supersession
 
