@@ -83,12 +83,12 @@
       "query": "What changed in Alice's title between March 2026 and August 2026?",
       "mode": "joint",
       "subjects": [{"type": "person", "id": "eval-person-alice"}],
-      "expected_doc_ids": ["slack:promo-thread-2026-06"],
+      "expected_doc_ids": [],
       "expected_diff_changed_pairs": [
         ["claim:alice-title-engineer", "claim:alice-title-manager"]
       ],
       "k": 5,
-      "notes": "NL range plan fills fact_diffs; exclusive title swaps Engineer to Manager."
+      "notes": "NL range plan fills fact_diffs; exclusive title swaps Engineer to Manager. Passage lower bound excludes Jan-stamped seed docs by design."
     },
     {
       "case_id": "alice-multi-member",

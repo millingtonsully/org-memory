@@ -19,6 +19,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from org_memory.eval.fixture_embedder import EvalFixtureEmbedder
 from org_memory.eval.harness import (
@@ -105,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         groups=[],
     )
 
-    serializable: dict[str, dict[str, list[str]]] = {}
+    serializable: dict[str, dict[str, Any]] = {}
     with session_scope() as session:
         seed_gold_corpus(
             session, workspace_id=workspace_id, cases=cases, embedder=embedder

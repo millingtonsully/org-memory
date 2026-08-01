@@ -14,6 +14,7 @@ from org_memory.eval.harness import GoldCase
 
 _EVENT = datetime(2026, 3, 1, tzinfo=UTC)
 _JAN = datetime(2026, 1, 1, tzinfo=UTC)
+_MAR_START = datetime(2026, 3, 1, tzinfo=UTC)
 _MAR = datetime(2026, 3, 15, tzinfo=UTC)
 _JUN = datetime(2026, 6, 1, tzinfo=UTC)
 _JUL = datetime(2026, 7, 1, tzinfo=UTC)
@@ -211,8 +212,9 @@ def seed_gold_corpus(
     session.flush()
 
     # Claims with ids required by the gold set.
-    # Belief timeline: Intern (Jan–Mar) → Engineer (Mar–Jul) → Manager (Jul–).
-    # World timeline: Engineer valid Jan–Jul, Manager from Jul.
+    # Belief: Intern recorded Jan, invalidated Mar. World: Intern ends before
+    # March so month-grain March snapshots only see Engineer (not Intern+Engineer).
+    # Engineer Jan–Jul; Manager from Jul.
     session.add(
         Claim(
             claim_id="claim:alice-title-belief-wrong",
@@ -222,7 +224,7 @@ def seed_gold_corpus(
             predicate="title",
             object_text="Intern",
             valid_from=_JAN,
-            valid_to=_MAR,
+            valid_to=_MAR_START,
             recorded_at=_JAN,
             invalidated_at=_MAR,
             confidence=0.7,

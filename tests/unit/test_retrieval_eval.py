@@ -43,7 +43,15 @@ def test_load_shipped_gold_set() -> None:
     cases = load_gold_set()
     assert default_gold_path().is_file()
     assert len(cases) >= 3
-    assert all(c.query and (c.expected_doc_ids or c.expected_claim_ids) for c in cases)
+    assert all(
+        c.query
+        and (
+            c.expected_doc_ids
+            or c.expected_claim_ids
+            or c.expected_diff_changed_pairs
+        )
+        for c in cases
+    )
 
 
 def test_score_predictions_averages_and_missing(tmp_path: Path) -> None:

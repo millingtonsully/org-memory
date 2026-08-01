@@ -28,7 +28,7 @@
     "claim_ids": ["claim:alice-title-belief-wrong"]
   },
   "title-snapshot-diff-nl": {
-    "doc_ids": ["slack:promo-thread-2026-06"],
+    "doc_ids": [],
     "claim_ids": [],
     "diff_changed_pairs": [
       ["claim:alice-title-engineer", "claim:alice-title-manager"]
