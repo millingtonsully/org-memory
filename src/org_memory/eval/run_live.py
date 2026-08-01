@@ -141,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
                 about=case.about,
                 as_of=as_of,
                 believed_as_of=believed_as_of,
+                as_of_grain=case.as_of_grain,
             )
             if payload.get("status") == "ambiguous":
                 raise SystemExit(
@@ -150,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             serializable[case.case_id] = {
                 "doc_ids": list(pred.doc_ids),
                 "claim_ids": list(pred.claim_ids),
+                "diff_changed_pairs": [list(p) for p in pred.diff_changed_pairs],
             }
 
     if args.predictions_out is not None:
@@ -165,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
             case_id: CasePrediction(
                 doc_ids=tuple(payload["doc_ids"]),
                 claim_ids=tuple(payload["claim_ids"]),
+                diff_changed_pairs=tuple(
+                    (str(p[0]), str(p[1]))
+                    for p in payload.get("diff_changed_pairs") or []
+                ),
             )
             for case_id, payload in serializable.items()
         },
@@ -176,7 +182,12 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout.write("\n")
     if report.missing_predictions:
         return 2
-    if report.averages().get("doc_hit_at_k", 1.0) < 1.0:
+    avgs = report.averages()
+    if avgs.get("doc_hit_at_k", 1.0) < 1.0:
+        return 1
+    if avgs.get("claim_hit_at_k", 1.0) < 1.0:
+        return 1
+    if avgs.get("diff_changed_hit", 1.0) < 1.0:
         return 1
     return 0
 

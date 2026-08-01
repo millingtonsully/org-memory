@@ -29,7 +29,8 @@ class QueryFactsRequest(BaseModel):
         description=(
             "World-time point. When set, returns active∪superseded claims whose "
             "validity window contains as_of (half-open: valid_from <= as_of < valid_to). "
-            "When omitted, returns currently active open-interval claims."
+            "When omitted, returns currently active claims whose validity "
+            "window contains now (half-open: valid_from <= now < valid_to)."
         ),
     )
     believed_as_of: datetime | None = Field(
@@ -97,6 +98,12 @@ class DiffFactsRequest(BaseModel):
             "Belief-time end of the snapshot pair; must be after believed_as_of_from."
         ),
     )
+    as_of_grain: str | None = Field(
+        default=None,
+        description=(
+            "World-time grain applied to both snapshots when using as_of_from/as_of_to."
+        ),
+    )
     limit: int = Field(default=50, ge=1, le=200)
 
 
@@ -118,6 +125,7 @@ def diff_facts(
             as_of_to=body.as_of_to,
             believed_as_of_from=body.believed_as_of_from,
             believed_as_of_to=body.believed_as_of_to,
+            as_of_grain=body.as_of_grain,
             limit=body.limit,
         )
     except ValueError as exc:

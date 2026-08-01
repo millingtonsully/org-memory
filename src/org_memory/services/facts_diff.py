@@ -22,6 +22,7 @@ def diff_subject_facts(
     as_of_to: datetime | None = None,
     believed_as_of_from: datetime | None = None,
     believed_as_of_to: datetime | None = None,
+    as_of_grain: str | None = None,
     limit: int = 50,
 ) -> dict:
     """Compare two temporal snapshots of the same subject.
@@ -50,6 +51,7 @@ def diff_subject_facts(
             principal=principal,
             predicate=predicate,
             as_of=as_of_from,
+            as_of_grain=as_of_grain,
             limit=limit,
         )
         snap_to = query_subject_facts(
@@ -59,6 +61,7 @@ def diff_subject_facts(
             principal=principal,
             predicate=predicate,
             as_of=as_of_to,
+            as_of_grain=as_of_grain,
             limit=limit,
         )
     elif belief:
@@ -79,6 +82,7 @@ def diff_subject_facts(
             principal=principal,
             predicate=predicate,
             believed_as_of=believed_as_of_from,
+            as_of_grain=as_of_grain,
             limit=limit,
         )
         snap_to = query_subject_facts(
@@ -88,6 +92,7 @@ def diff_subject_facts(
             principal=principal,
             predicate=predicate,
             believed_as_of=believed_as_of_to,
+            as_of_grain=as_of_grain,
             limit=limit,
         )
     else:
@@ -120,6 +125,7 @@ def diff_subject_facts(
         "believed_as_of_to": (
             believed_as_of_to.isoformat() if believed_as_of_to else None
         ),
+        "as_of_grain": as_of_grain,
         "from_snapshot": {
             "returned": snap_from["returned"],
             "truncated": snap_from["truncated"],

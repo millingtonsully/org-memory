@@ -10,6 +10,7 @@ from org_memory.db.orm import Claim, Document, utcnow
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.proposals import precedence_rank
+from org_memory.services.temporality.merge import merge_temporal_fields
 
 
 class GraphClaimsMixin(GraphRepositoryBase):
@@ -38,8 +39,7 @@ class GraphClaimsMixin(GraphRepositoryBase):
             }
             existing.evidence_quotes = list(quotes.values())
             existing.confidence = max(existing.confidence, claim.confidence)
-            if existing.valid_from is None and claim.valid_from is not None:
-                existing.valid_from = claim.valid_from
+            merge_temporal_fields(existing, claim)
             merged_count = len(existing.evidence_doc_ids or [])
             incoming_rank = precedence_rank(
                 created_by=claim.created_by or "",
@@ -59,8 +59,10 @@ class GraphClaimsMixin(GraphRepositoryBase):
                     FactStatus.active,
                     claim.decided_by or "automatic:confidence_gate",
                 )
+                existing.invalidated_at = None
             elif existing.status == FactStatus.retracted.value and claim.status == FactStatus.proposed.value:
                 transition_fact(existing, FactStatus.proposed, "")
+                existing.invalidated_at = None
             existing.updated_at = utcnow()
             return existing
         claim.workspace_id = self._ws

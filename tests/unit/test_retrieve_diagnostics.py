@@ -160,3 +160,69 @@ def test_retrieve_derives_passage_date_to_from_as_of(monkeypatch) -> None:
         assert out["diagnostics"]["passage_temporal"]["event_time_to"] == as_of.isoformat()
     finally:
         get_settings.cache_clear()
+
+
+def test_retrieve_derives_passage_from_and_to_for_range_plan(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    from tests.conftest import apply_minimal_settings_env
+
+    from org_memory.core.settings import get_settings
+    from org_memory.domain.models import Principal, SearchResponse
+    from org_memory.services.retrieve_context import RetrieveContextService, SubjectRef
+
+    apply_minimal_settings_env(monkeypatch, workspace_id="ws-passage-range")
+    get_settings.cache_clear()
+    captured: dict = {}
+
+    class StubRetrieval:
+        def search(self, **kwargs):  # noqa: ANN003
+            captured.update(kwargs)
+            return SearchResponse(
+                query=kwargs["query"],
+                passages=[],
+                facts=[],
+                total_candidates=0,
+                reranked=False,
+                audit_id="a1",
+                diagnostics={},
+            )
+
+    class EmptyGraph:
+        def claims_for_viewer(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return []
+
+        def paths_from(self, **kwargs):  # noqa: ANN003
+            return {
+                "paths": [],
+                "returned": 0,
+                "limit": 20,
+                "max_depth": 2,
+                "truncated": False,
+                "capped": False,
+            }
+
+    try:
+        service = RetrieveContextService(
+            session=object(),  # type: ignore[arg-type]
+            retrieval=StubRetrieval(),  # type: ignore[arg-type]
+            graph=EmptyGraph(),  # type: ignore[arg-type]
+        )
+        out = service.retrieve(
+            principal=Principal(
+                principal_id="user:11111111-1111-1111-1111-111111111111"
+            ),
+            query="What changed in Alice's title between March 2026 and August 2026?",
+            mode="joint",
+            subjects=[
+                SubjectRef(type="person", id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+            ],
+        )
+        assert captured["date_from"] == datetime(2026, 3, 15, tzinfo=UTC)
+        assert captured["date_to"] == datetime(2026, 8, 15, tzinfo=UTC)
+        pt = out["diagnostics"]["passage_temporal"]
+        assert pt["derived_from"] == "as_of_range"
+        assert pt["event_time_from"] == datetime(2026, 3, 15, tzinfo=UTC).isoformat()
+        assert pt["event_time_to"] == datetime(2026, 8, 15, tzinfo=UTC).isoformat()
+    finally:
+        get_settings.cache_clear()

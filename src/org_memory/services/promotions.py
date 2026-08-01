@@ -12,6 +12,8 @@ from org_memory.domain.fact_lifecycle import FactStatus
 from org_memory.domain.jobs import JobType
 from org_memory.domain.models import Principal
 from org_memory.domain.proposals import precedence_class_name, precedence_rank
+from org_memory.services.temporality.eager_close import eager_close_claim_slot
+from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
 
@@ -101,6 +103,13 @@ class PromotionService:
         if source_kind and source_id:
             quotes[0]["source"] = {"kind": source_kind, "id": source_id}
 
+        t_ref = self._graph.latest_evidence_time(evidence_doc_ids)
+        if t_ref is None:
+            raise ValueError("evidence documents must have event_time for grounding")
+        grounded = ground_fact_times({}, t_ref=t_ref)
+        if grounded is None:
+            raise ValueError("could not ground promotion claim interval")
+
         claim = self._graph.add_claim(
             Claim(
                 workspace_id=settings.workspace_id,
@@ -115,14 +124,16 @@ class PromotionService:
                 origin_subject_id=subject_id,
                 created_by=created_by,
                 decided_by=f"agent_promote:{principal.principal_id}",
-                valid_from=self._graph.latest_evidence_time(evidence_doc_ids),
+                valid_from=grounded.valid_from,
+                valid_to=grounded.valid_to,
+                time_grain=grounded.time_grain,
             )
         )
         if pred_def.mutually_exclusive:
-            leftover = self._graph.supersede_slot_rivals(
-                claim, f"agent_promote:{principal.principal_id}"
-            )
-            if leftover:
+            eager_close_claim_slot(self._graph, claim)
+            if len(self._graph.active_object_texts(
+                claim.subject_type, claim.subject_id, claim.predicate
+            )) > 1:
                 self._jobs.enqueue(
                     JobType.resolve_claim_conflict,
                     {

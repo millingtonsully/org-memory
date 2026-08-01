@@ -229,6 +229,11 @@ class ExtractionApplyMixin:
                 continue
             confidence = min(0.85, activation_confidence + 0.05)
             status = status_for_confidence(confidence, activation_confidence).value
+            if doc.event_time is None:
+                continue
+            grounded = ground_fact_times({}, t_ref=doc.event_time)
+            if grounded is None:
+                continue
             stored_claim = self._graph.add_claim(
                 Claim(
                     workspace_id=doc.workspace_id,
@@ -243,8 +248,9 @@ class ExtractionApplyMixin:
                     origin_subject_id=entity_id,
                     created_by="extraction:glossary_seed",
                     decided_by=("automatic:confidence_gate" if status == "active" else ""),
-                    valid_from=doc.event_time,
-                    time_grain="day",
+                    valid_from=grounded.valid_from,
+                    valid_to=grounded.valid_to,
+                    time_grain=grounded.time_grain,
                 )
             )
             if stored_claim.status == FactStatus.active.value:

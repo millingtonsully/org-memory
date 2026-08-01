@@ -222,13 +222,14 @@ def seed_gold_corpus(
             predicate="title",
             object_text="Intern",
             valid_from=_JAN,
-            valid_to=None,
+            valid_to=_MAR,
             recorded_at=_JAN,
             invalidated_at=_MAR,
             confidence=0.7,
             status="superseded",
             evidence_doc_ids=["hr:alice-title-correction"],
             created_by="eval",
+            time_grain="day",
         )
     )
     session.add(
@@ -247,6 +248,7 @@ def seed_gold_corpus(
             status="superseded",
             evidence_doc_ids=["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
             created_by="eval",
+            time_grain="month",
         )
     )
     session.add(
@@ -263,6 +265,7 @@ def seed_gold_corpus(
             status="active",
             evidence_doc_ids=["slack:promo-thread-2026-06"],
             created_by="eval",
+            time_grain="day",
         )
     )
     session.add(

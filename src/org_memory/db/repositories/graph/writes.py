@@ -12,6 +12,7 @@ from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import Principal
 from org_memory.services.temporality.grain import fact_matches_as_of, normalize_grain
+from org_memory.services.temporality.merge import merge_temporal_fields
 
 
 class GraphWritesMixin(GraphRepositoryBase):
@@ -174,14 +175,17 @@ class GraphWritesMixin(GraphRepositoryBase):
             }
             existing.evidence_quotes = list(quotes.values())
             existing.confidence = max(existing.confidence, rel.confidence)
+            merge_temporal_fields(existing, rel)
             if rel.status == FactStatus.active.value and existing.status != FactStatus.active.value:
                 transition_fact(
                     existing,
                     FactStatus.active,
                     rel.decided_by or "automatic:confidence_gate",
                 )
+                existing.invalidated_at = None
             elif existing.status == FactStatus.retracted.value and rel.status == FactStatus.proposed.value:
                 transition_fact(existing, FactStatus.proposed, "")
+                existing.invalidated_at = None
             existing.updated_at = utcnow()
             return existing
         rel.workspace_id = self._ws
@@ -215,6 +219,19 @@ class GraphWritesMixin(GraphRepositoryBase):
             )
         rows = q.order_by(Relationship.created_at).all()
         if as_of is None:
+            if believed_as_of is None:
+                now = utcnow()
+                return [
+                    rel
+                    for rel in rows
+                    if fact_matches_as_of(
+                        valid_from=rel.valid_from,
+                        valid_to=rel.valid_to,
+                        fact_grain=rel.time_grain,
+                        as_of=now,
+                        query_grain="day",
+                    )
+                ]
             return rows
         grain = normalize_grain(as_of_grain)
         return [
@@ -301,6 +318,19 @@ class GraphWritesMixin(GraphRepositoryBase):
             )
         rows = q.order_by(Claim.created_at.desc()).all()
         if as_of is None:
+            if believed_as_of is None:
+                now = utcnow()
+                return [
+                    claim
+                    for claim in rows
+                    if fact_matches_as_of(
+                        valid_from=claim.valid_from,
+                        valid_to=claim.valid_to,
+                        fact_grain=claim.time_grain,
+                        as_of=now,
+                        query_grain="day",
+                    )
+                ]
             return rows
         grain = normalize_grain(as_of_grain)
         return [
@@ -407,6 +437,14 @@ class GraphWritesMixin(GraphRepositoryBase):
                     FactStatus.retracted,
                     "automatic:source_retraction",
                 )
+                close_at = (
+                    removed_doc.event_time
+                    if removed_doc is not None and removed_doc.event_time is not None
+                    else utcnow()
+                )
+                if relationship.valid_to is None:
+                    relationship.valid_to = close_at
+                relationship.invalidated_at = utcnow()
             relationship.updated_at = utcnow()
 
         claims = (
@@ -435,6 +473,14 @@ class GraphWritesMixin(GraphRepositoryBase):
                     FactStatus.retracted,
                     "automatic:source_retraction",
                 )
+                close_at = (
+                    removed_doc.event_time
+                    if removed_doc is not None and removed_doc.event_time is not None
+                    else utcnow()
+                )
+                if claim.valid_to is None:
+                    claim.valid_to = close_at
+                claim.invalidated_at = utcnow()
             claim.updated_at = utcnow()
 
         entities = (

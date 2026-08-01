@@ -69,6 +69,7 @@ class RetrieveContextService:
         about: str | None = None,
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
         path_max_depth: int = 2,
         path_limit: int = 20,
         relationship_types: list[str] | None = None,
@@ -102,7 +103,8 @@ class RetrieveContextService:
         temporal_plan = None
         effective_as_of = as_of
         effective_believed_as_of = believed_as_of
-        effective_as_of_grain: str | None = None
+        # Host-supplied grain wins; planner fills grain only when axes are planned.
+        effective_as_of_grain: str | None = as_of_grain
         diff_from: datetime | None = None
         diff_to: datetime | None = None
         diff_axis: Literal["world", "belief"] | None = None
@@ -129,7 +131,8 @@ class RetrieveContextService:
                     "truncated_tokens": False,
                 }
             if temporal_plan.axis == "world":
-                effective_as_of_grain = temporal_plan.grain
+                if effective_as_of_grain is None:
+                    effective_as_of_grain = temporal_plan.grain
                 if temporal_plan.range_end is not None and temporal_plan.as_of is not None:
                     effective_as_of = temporal_plan.range_end
                     diff_from = temporal_plan.as_of
@@ -155,26 +158,55 @@ class RetrieveContextService:
         about_doc_ids = resolved.get("about_doc_ids")
 
         # Passage clocks: world as_of caps event_time; belief caps updated_at.
-        # Explicit host date_to / updated_to always win.
+        # Range plans also derive lower bounds. Explicit host filters always win.
+        passage_date_from = date_from
         passage_date_to = date_to
+        passage_updated_from = updated_from
         passage_updated_to = updated_to
         passage_temporal: dict[str, Any] = {
+            "event_time_from": None,
             "event_time_to": None,
+            "updated_at_from": None,
             "updated_at_to": None,
             "derived_from": None,
         }
+        if (
+            passage_date_from is None
+            and diff_axis == "world"
+            and diff_from is not None
+        ):
+            passage_date_from = diff_from
+            passage_temporal["event_time_from"] = diff_from.isoformat()
+            passage_temporal["derived_from"] = "as_of_range"
         if passage_date_to is None and effective_as_of is not None:
             passage_date_to = effective_as_of
             passage_temporal["event_time_to"] = effective_as_of.isoformat()
-            passage_temporal["derived_from"] = "as_of"
+            passage_temporal["derived_from"] = (
+                "as_of_range"
+                if passage_temporal["derived_from"] == "as_of_range"
+                else "as_of"
+            )
+        if (
+            passage_updated_from is None
+            and diff_axis == "belief"
+            and diff_from is not None
+        ):
+            passage_updated_from = diff_from
+            passage_temporal["updated_at_from"] = diff_from.isoformat()
+            passage_temporal["derived_from"] = (
+                "believed_as_of_range"
+                if passage_temporal["derived_from"] is None
+                else f"{passage_temporal['derived_from']}+believed_as_of_range"
+            )
         if passage_updated_to is None and effective_believed_as_of is not None:
             passage_updated_to = effective_believed_as_of
             passage_temporal["updated_at_to"] = effective_believed_as_of.isoformat()
-            passage_temporal["derived_from"] = (
-                "believed_as_of"
-                if passage_temporal["derived_from"] is None
-                else "as_of+believed_as_of"
-            )
+            if passage_temporal["derived_from"] is None:
+                passage_temporal["derived_from"] = "believed_as_of"
+            elif "believed" not in str(passage_temporal["derived_from"]):
+                passage_temporal["derived_from"] = (
+                    f"{passage_temporal['derived_from']}+believed_as_of"
+                )
 
         search: SearchResponse | None = None
         structured_facts: list[dict] = []
@@ -191,9 +223,9 @@ class RetrieveContextService:
                 author=author,
                 about_person_ids=about_person_ids if with_about else None,
                 about_doc_ids=about_doc_ids if with_about else None,
-                date_from=date_from,
+                date_from=passage_date_from,
                 date_to=passage_date_to,
-                updated_from=updated_from,
+                updated_from=passage_updated_from,
                 updated_to=passage_updated_to,
                 doc_id=doc_id,
                 half_life_days=half_life_days,
@@ -230,6 +262,7 @@ class RetrieveContextService:
                             principal=principal,
                             as_of_from=diff_from,
                             as_of_to=diff_to,
+                            as_of_grain=effective_as_of_grain,
                             limit=fact_limit_per_subject,
                         )
                     )
@@ -246,6 +279,7 @@ class RetrieveContextService:
                             principal=principal,
                             believed_as_of_from=diff_from,
                             believed_as_of_to=diff_to,
+                            as_of_grain=effective_as_of_grain,
                             limit=fact_limit_per_subject,
                         )
                     )
@@ -312,6 +346,7 @@ class RetrieveContextService:
                 if effective_believed_as_of
                 else None
             ),
+            "as_of_grain": effective_as_of_grain,
             "truncated_tokens": False,
             "max_tokens": max_tokens,
         }

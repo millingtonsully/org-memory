@@ -42,7 +42,53 @@
       "expected_doc_ids": ["hr:alice-title-correction"],
       "expected_claim_ids": ["claim:alice-title-belief-wrong"],
       "k": 5,
-      "notes": "Belief axis; pre-correction value while the system still held the wrong title."
+      "notes": "Belief axis with host timestamp; pre-correction value."
+    },
+    {
+      "case_id": "title-belief-february-nl",
+      "query": "What did we report as Alice's title in February 2026?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "expected_doc_ids": ["hr:alice-title-correction"],
+      "expected_claim_ids": ["claim:alice-title-belief-wrong"],
+      "k": 5,
+      "notes": "Belief axis from NL only; planner supplies believed_as_of without host timestamp."
+    },
+    {
+      "case_id": "title-world-grain-month",
+      "query": "What was Alice's title around March 2026?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "as_of": "2026-03-20T00:00:00+00:00",
+      "as_of_grain": "month",
+      "expected_doc_ids": ["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
+      "expected_claim_ids": ["claim:alice-title-engineer"],
+      "k": 5,
+      "notes": "Host as_of with month grain; engineer claim stores time_grain=month."
+    },
+    {
+      "case_id": "title-joint-world-belief",
+      "query": "Alice title under both clocks",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "as_of": "2026-02-15T00:00:00+00:00",
+      "believed_as_of": "2026-02-15T00:00:00+00:00",
+      "expected_doc_ids": ["hr:alice-title-correction"],
+      "expected_claim_ids": ["claim:alice-title-belief-wrong"],
+      "k": 5,
+      "notes": "Both axes set; Intern is valid and believed in mid-February."
+    },
+    {
+      "case_id": "title-snapshot-diff-nl",
+      "query": "What changed in Alice's title between March 2026 and August 2026?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "expected_doc_ids": ["slack:promo-thread-2026-06"],
+      "expected_diff_changed_pairs": [
+        ["claim:alice-title-engineer", "claim:alice-title-manager"]
+      ],
+      "k": 5,
+      "notes": "NL range plan fills fact_diffs; exclusive title swaps Engineer to Manager."
     },
     {
       "case_id": "alice-multi-member",

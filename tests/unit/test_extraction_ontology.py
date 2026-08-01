@@ -39,6 +39,8 @@ def test_resolve_ref_typed_team(monkeypatch) -> None:
 
 
 def test_apply_seeds_glossary_definition(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
     from tests.conftest import apply_minimal_settings_env
 
     apply_minimal_settings_env(monkeypatch, workspace_id="ws-extract")
@@ -67,10 +69,11 @@ def test_apply_seeds_glossary_definition(monkeypatch) -> None:
     )
     service._graph.add_claim.return_value = stored
 
+    t_ref = datetime(2026, 3, 15, tzinfo=UTC)
     doc = SimpleNamespace(
         doc_id="doc:1",
         workspace_id="ws-extract",
-        event_time=None,
+        event_time=t_ref,
     )
     window = "CarePod is a cross-functional clinical unit for a patient panel."
     parsed = {
@@ -102,6 +105,8 @@ def test_apply_seeds_glossary_definition(monkeypatch) -> None:
     claim = service._graph.add_claim.call_args.args[0]
     assert claim.predicate == "definition"
     assert claim.subject_type == "glossary"
+    assert claim.valid_from == t_ref
+    assert claim.time_grain == "day"
     get_settings.cache_clear()
     clear_taxonomy_registry_cache()
 

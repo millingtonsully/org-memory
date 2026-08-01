@@ -14,8 +14,10 @@ lifecycle, freshness, grains, and indexes.
 **World time (validity)** — `valid_from` / `valid_to` on claims and
 relationships. These bound when the stated fact held in reality. The interval
 is half-open: a fact is valid at time `t` when `valid_from <= t` and
-(`valid_to IS NULL` or `valid_to > t`). An open `valid_to` means the fact is
-still current as far as the system knows.
+(`valid_to IS NULL` or `valid_to > t`). An open `valid_to` means the world-time
+window has not ended yet; it does **not** by itself mean the fact is “current.”
+Current reads require `status = active` **and** a validity window that contains
+now (see Query surface).
 
 **System time (belief)** — `recorded_at` / `invalidated_at`. These bound when
 the service itself held the fact as active. `recorded_at` is set when the fact
@@ -48,21 +50,27 @@ point containment after fact-side expansion.
   rows whose window contains the point.
 - `believed_as_of` filters on the belief window, reconstructing what the
   service would have returned at that moment.
-- Omitting both returns currently active facts with open validity.
+- Omitting both returns currently active facts whose validity window contains
+  now (half-open: `valid_from <= now < valid_to`), matching hybrid
+  `fact_candidates`.
 
 `POST /tools/diff_facts` compares two snapshots of the same subject on one
 axis: a world pair (`as_of_from` / `as_of_to`) or a belief pair
-(`believed_as_of_from` / `believed_as_of_to`). The response classifies facts as
-unchanged, added, removed, or changed (exclusive predicates that swap values).
+(`believed_as_of_from` / `believed_as_of_to`). Optional `as_of_grain` applies to
+both world snapshots. The response classifies facts as unchanged, added,
+removed, or changed (exclusive predicates that swap values).
 
-`retrieve_context` accepts the same single-point parameters. When the caller
-omits both axes, compose derives a temporal plan from the query text (see
-[`temporal-truth.md`](temporal-truth.md)). When rules return ambiguous, compose
-calls a spend-gated synthesis assist; vendor or spend failures surface rather
-than inventing an axis. Explicit timestamps from the host always win. When the
-plan is a snapshot pair (`range_end` set), compose also returns `fact_diffs`.
-World `as_of` also caps passage `event_time` (and belief `believed_as_of` caps
-passage `updated_at`) unless the host already set `date_to` / `updated_to`.
+`retrieve_context` accepts the same single-point parameters plus `as_of_grain`.
+When the caller omits both axes, compose derives a temporal plan from the query
+text (see [`temporal-truth.md`](temporal-truth.md)). When rules return
+ambiguous, compose calls a spend-gated synthesis assist; vendor or spend
+failures surface rather than inventing an axis. Explicit timestamps from the
+host always win; host `as_of_grain` wins over planner grain. When the plan is a
+snapshot pair (`range_end` set), compose also returns `fact_diffs` and derives
+passage `date_from`/`date_to` (or belief `updated_from`/`updated_to`) for the
+range. Point queries still apply upper passage caps only unless the host set
+bounds. `time_expression` from extraction is grounding-only and is not persisted
+on claim/relationship rows.
 Path responses include `truncated` (more paths than `limit`) and `capped`
 (request depth/limit was clamped to hard maxima).
 

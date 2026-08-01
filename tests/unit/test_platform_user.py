@@ -50,6 +50,8 @@ def test_platform_user_id_for_missing_or_ambiguous() -> None:
 
 
 def test_promote_autofills_host_entity_id_from_platform_user(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
     from tests.conftest import apply_minimal_settings_env
 
     apply_minimal_settings_env(monkeypatch, workspace_id="ws-promo")
@@ -68,15 +70,19 @@ def test_promote_autofills_host_entity_id_from_platform_user(monkeypatch) -> Non
         predicate="title",
         object_text="VP",
         confidence=1.0,
+        status="active",
         evidence_doc_ids=["doc:1"],
         created_by="agent_promote:user:11111111-1111-1111-1111-111111111111",
+        valid_from=datetime(2026, 3, 15, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 15, tzinfo=UTC),
     )
     proposal = SimpleNamespace(proposal_id="prop-1")
     service._graph = MagicMock()
     service._graph.visible_evidence_doc_ids.return_value = ["doc:1"]
-    service._graph.latest_evidence_time.return_value = None
+    service._graph.latest_evidence_time.return_value = datetime(2026, 3, 15, tzinfo=UTC)
     service._graph.add_claim.return_value = claim
-    service._graph.supersede_slot_rivals.return_value = []
+    service._graph.active_claims_for_slot_locked.return_value = [claim]
+    service._graph.active_object_texts.return_value = ["VP"]
     service._proposals = MagicMock()
     service._proposals.upsert_pending.return_value = proposal
     service._jobs = MagicMock()

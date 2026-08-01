@@ -88,6 +88,7 @@ POST /tools/retrieve_context
 | `subjects` | Explicit `{type, id}` seeds for facts/paths |
 | `about` | Viewer-scoped name resolved into subject seeds |
 | `as_of` / `believed_as_of` | World-time and belief-time filters; when omitted, compose derives a temporal plan from the query when it can |
+| `as_of_grain` | World-time matching grain (`day` \| `month` \| `quarter` \| `year` \| `unknown`); host value wins over planner grain |
 | `max_tokens` | Optional packing budget |
 | filters | Passage filters (`source_*`, dates, `author`, …) |
 
@@ -95,7 +96,12 @@ POST /tools/retrieve_context
 
 - **`vector_first`** — search passages, then expand from subjects / `about`.
 - **`graph_first`** — resolve subjects and pull facts/paths, then search.
+  Requires at least one subject seed (`subjects` and/or `about`).
 - **`joint`** — search and graph expansion for the same query together.
+
+Outputs include passages, hybrid `search_facts`, per-subject `structured_facts`
+and `paths`, and `fact_diffs` when the temporal plan is a snapshot range
+(“what changed between A and B”).
 
 Contract: `contracts/tools/retrieve_context.request.schema.json`.
 
@@ -144,9 +150,10 @@ model or dimensions re-embeds affected chunks.
 relationships. Superseded facts stay for as-of reads. Document `event_time`
 grounds extracted windows; optional `time_grain` records source precision.
 Registry-exclusive slots close on the write path so “current” answers see one
-winner. `retrieve_context` accepts `as_of` / `believed_as_of`, and derives a
-temporal plan from the query when those are omitted (ambiguous questions
-return structured ambiguity). Ledger: `docs/temporal-model.md`. Pipeline:
+winner. `retrieve_context` accepts `as_of` / `believed_as_of` / `as_of_grain`,
+and derives a temporal plan from the query when timestamps are omitted
+(ambiguous questions return structured ambiguity). Snapshot range plans also
+fill `fact_diffs`. Ledger: `docs/temporal-model.md`. Pipeline:
 `docs/temporal-truth.md`.
 
 **Two ACL rules.** Passages use **any-visible** (see the doc → see its chunks).
@@ -189,16 +196,19 @@ participates; `author` filters authorship. Those are distinct.
 - **World time** — when the fact held in reality.
 - **System time** — when the service believed it.
 
-`query_facts`, `query_paths`, and `retrieve_context` accept `as_of` and
-`believed_as_of`. When those axes are set, the hybrid fact channel inside
-`retrieve_context` uses the same windows (active + superseded). When both are
-omitted, compose derives a temporal plan from the query text; when that plan is
-ambiguous, a spend-gated synthesis assist may resolve it (or leave ambiguity /
-surface vendor errors). Explicit host timestamps always win. Snapshot questions
-(“what changed between A and B”) produce a plan with `range_end`; compose then
-includes `fact_diffs`, and hosts can call `POST /tools/diff_facts` directly.
-World `as_of` also upper-bounds passage `event_time` (belief
-`believed_as_of` upper-bounds `updated_at`) when the host omits those filters.
+`query_facts`, `query_paths`, and `retrieve_context` accept `as_of`,
+`believed_as_of`, and `as_of_grain`. When those axes are set, the hybrid fact
+channel inside `retrieve_context` uses the same windows (active + superseded).
+When both timestamps are omitted, compose derives a temporal plan from the
+query text; when that plan is ambiguous, a spend-gated synthesis assist may
+resolve it (or leave ambiguity / surface vendor errors). Explicit host
+timestamps always win; host `as_of_grain` wins over planner grain. Snapshot
+questions (“what changed between A and B”) produce a plan with `range_end`;
+compose then includes `fact_diffs` (and hosts can call `POST /tools/diff_facts`
+directly). Point `as_of` upper-bounds passage `event_time` (belief upper-bounds
+`updated_at`); range plans also set the matching lower bound when the host
+omits those filters. Omitting both axes on structured reads means currently
+active facts whose validity contains now.
 Schema `0001` indexes subject/endpoint plus temporal ranges. Storage:
 `docs/temporal-model.md`. Pipeline: `docs/temporal-truth.md`.
 

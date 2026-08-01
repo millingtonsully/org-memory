@@ -4,8 +4,8 @@ This document explains why time matters for workplace memory, how Org Memory
 handles it end to end, and how that design maps onto the codebase.
 
 For the storage model itself (axes, indexes, lifecycle states), see
-[`temporal-model.md`](temporal-model.md). This file is the **product and
-engineering plan** for temporal correctness from extract through retrieve.
+[`temporal-model.md`](temporal-model.md). This file is the **shipped product
+pipeline** for temporal correctness from extract through retrieve.
 
 ---
 
@@ -47,8 +47,8 @@ ambiguity when the question does not choose an axis clearly.
 | **L2** | Write grounding | Attach world-time windows to new facts using document `event_time` as reference (`t_ref`) plus any explicit or relative time in the text |
 | **L3** | Supersession | When a new exclusive value wins, close the loser on **both** axes (set `valid_to`, set `invalidated_at`, point `superseded_by_*`) |
 | **L4** | Query intent | Map natural language → `{axis, time_point or range, granularity, confidence}` or return ambiguity |
-| **L5** | Read filters | Apply the plan to `query_facts`, `query_paths`, hybrid `fact_candidates`, and compose (`retrieve_context`) |
-| **L6** | Evaluation | Gold questions that require a single current winner, the correct March snapshot, and the correct belief-axis answer |
+| **L5** | Read filters | Apply the plan to `query_facts`, `query_paths`, hybrid `fact_candidates`, and compose (`retrieve_context`), including shared “current” = active ∩ validity-now and `as_of_grain` |
+| **L6** | Evaluation | Gold covers current, world (host+NL), belief (host+NL), grain, joint axes, multi-valued, and snapshot `fact_diffs` |
 
 Each layer owns a distinct failure class:
 
@@ -107,9 +107,10 @@ multi-valued. Ranking freshness and passage recency remain separate signals;
 they complement the ledger rather than replace supersession.
 
 **Shipped temporal coverage.** Temporal gold includes current winner, NL
-world-axis, belief-axis, and multi-valued `member_of` cases in
-`evals/retrieval/gold_set.json`. Remaining product depth (snapshot-diff live
-scoring, narrative multi-hop time) is listed under next waves.
+world-axis, host and NL belief-axis, month grain, joint world+belief, snapshot
+diff (`fact_diffs`), and multi-valued `team` cases in
+`evals/retrieval/gold_set.json`. Narrative multi-hop time and speech-act
+distinctions remain out of this pipeline.
 
 ---
 
@@ -187,15 +188,20 @@ Extractor output (additive JSON fields on claims/relationships):
 | `time_grain` | `day` \| `month` \| `quarter` \| `year` \| `unknown` |
 | `time_expression` | Raw phrase if any (“last March”, “effective Q3”) |
 
-Deterministic grounding module:
+Deterministic grounding module (`grounding.py`):
 
 1. Parse absolute ISO-ish timestamps when present.  
 2. Resolve relative phrases against `t_ref` with a small, tested rule table;
    otherwise leave grain coarse and the window wide.  
-3. Default: `valid_from = t_ref`, `valid_to = null`, `time_grain = unknown`.  
-4. Grain never finer than the evidence supports.  
-5. Contradictory windows (`from > to`) fail closed—drop or proposed-only with
-   an audit reason.
+3. Default: `valid_from = t_ref`, `valid_to = null`; when grain was `unknown`,
+   default grain becomes **`day`**.  
+4. Prompt guidance asks for grain no finer than the evidence supports (not a
+   hard runtime clamp beyond normalize).  
+5. Contradictory windows (`from > to`) fail closed: grounding returns `None`
+   and apply skips the fact (`dropped_unverifiable`).
+
+`time_expression` is returned on `GroundedInterval` for grounding only; it is
+**not** persisted on claim/relationship rows.
 
 The extraction prompt states `t_ref` explicitly so relative language has a
 documented clock.
@@ -210,9 +216,10 @@ registry marks the key mutually exclusive:
 3. Supersede losers with `valid_to = winner.valid_from`.  
 4. Apply the same pattern to exclusive relationships.
 
-`resolve_claim_conflict` / `resolve_relationship_conflict` continue to handle
-duplicate collapse, races, registry-unknown exclusivity, and out-of-band
-promotions or structured fields.
+Extraction apply, structured field writers, promotions, and glossary seed call
+`eager_close_*` for registry-exclusive slots. `resolve_claim_conflict` /
+`resolve_relationship_conflict` remain the async safety net for duplicate
+collapse, races, registry-unknown exclusivity, and residual multi-value slots.
 
 ### 4.5 Temporal intent planner
 
@@ -248,20 +255,24 @@ omits them, `retrieve_context` applies the plan.
 
 - `query_facts` / `paths_from` filter both axes.  
 - Hybrid `fact_candidates` honor axes when the plan (or request) supplies them.  
-- Compose forwards the plan into search and graph expansion.  
-- Diagnostics include `temporal_plan` (axis and counts only—never denied doc
-  ids).
+- When both axes are omitted, all three channels use **active ∩ validity-now**.  
+- Compose forwards the plan (including `as_of_grain`) into search and graph
+  expansion; range plans also fill `fact_diffs` and passage from/to caps.  
+- Diagnostics include `temporal_plan` via `to_diagnostics()` (axis, status,
+  grain, confidence, as_of / believed_as_of / range_end, rationale)—never
+  denied doc ids.
 
 ### 4.7 Evaluation
 
-The temporal gold suite includes cases that lock L3–L5 behavior:
+The temporal gold suite locks L3–L6 behavior:
 
 1. Two titles in sequence → “current” returns only the winner.  
 2. Mid-window `as_of` returns the March title, not the June title.  
-3. Belief-axis question after a correction returns the pre-correction belief.  
-4. Multi-valued `member_of` keeps both teams after a second extract.  
-5. Question without time language → planner selects `current` (or ambiguous
-   when the product treats the phrasing as underspecified).  
+3. Belief-axis questions (host timestamp and NL planner) return the
+   pre-correction belief.  
+4. Multi-valued `team` keeps both teams.  
+5. Host `as_of_grain` and NL range plans exercise grain and `fact_diffs`.  
+6. Joint `as_of` + `believed_as_of` AND-filters correctly.  
 
 Fixtures use real timestamps. Temporal cases assert **graph correctness**;
 planted vectors remain appropriate for retrieval wiring tests elsewhere.
@@ -341,27 +352,28 @@ planted vectors remain appropriate for retrieval wiring tests elsewhere.
 | [`tests/postgres/test_query_facts_paths.py`](../tests/postgres/test_query_facts_paths.py) | Temporal filters, ACL, supersession-friendly fixtures |
 | [`tests/postgres/test_diff_facts_pg.py`](../tests/postgres/test_diff_facts_pg.py) | Snapshot diff HTTP contract |
 | [`tests/postgres/test_retrieve_context.py`](../tests/postgres/test_retrieve_context.py) | Compose + ACL |
-| [`evals/retrieval/gold_set.json`](../evals/retrieval/gold_set.json) | Retrieval gold set; extends with temporal cases |
+| [`evals/retrieval/gold_set.json`](../evals/retrieval/gold_set.json) | Retrieval gold set with temporal cases (current, world host+NL, belief host+NL, grain, joint, snapshot diff, multi) |
 
-### What this design adds
+### Shipped capabilities
 
 | Capability | Home |
 | ---------- | ---- |
-| `services/temporality/` package | Grounding, grain match, intent, eager-close, diff |
+| `services/temporality/` package | Grounding, grain match, merge on re-evidence, intent, eager-close, diff |
 | Structured time fields on extract | Prompt + `grounding.py` |
-| Eager exclusive supersession on apply | `eager_close.py` from `extraction_apply` |
+| Eager exclusive supersession on apply | `eager_close.py` from extraction, structured writers, promotions, glossary seed |
+| Re-evidence temporal merge | `merge.py` from `add_claim` / `add_relationship` |
 | NL → `TemporalQueryPlan` in compose | `intent.py`; spend-gated `intent_llm.py` on ambiguity |
 | `time_grain` on facts | Column in squashed `0001`; ORM aligned |
 | Snapshot diff | `diff.py` / `facts_diff.py` / `POST /tools/diff_facts` |
-| Passage temporal caps | `retrieve_context` derives `date_to` / `updated_to` |
-| Temporal gold cases | `evals/retrieval/gold_set.json` (current, world, belief, multi) |
+| Passage temporal caps | Point: upper `date_to` / `updated_to`; range: also lower `date_from` / `updated_from` |
+| Temporal gold cases | `evals/retrieval/gold_set.json` (current, world, belief, grain, joint, diffs, multi) |
 
 Ledger filters, ontology flags, deterministic ranking, and async conflict
-resolution are already in place and stay the foundation.
+resolution remain the foundation under these capabilities.
 
 ---
 
-## 7. Build approach
+## 7. Engineering practices and layout
 
 ### Practices
 
@@ -372,12 +384,12 @@ resolution are already in place and stay the foundation.
   no silent invented times  
 - **Deterministic winners**; LLM only for exclusivity-when-unknown or optional
   intent assist  
-- **Single Alembic `0001`**: edit in place when adding `time_grain`; ORM stays
+- **Single Alembic `0001`**: edit in place when schema changes; ORM stays
   aligned  
 - **Affirmative docs**: describe what the system does  
 - **No production mocks**  
 - **Compose over primitives**: planner feeds existing `as_of` /
-  `believed_as_of` knobs  
+  `believed_as_of` / `as_of_grain` knobs  
 
 ### Package layout
 
@@ -387,70 +399,33 @@ src/org_memory/services/temporality/
   types.py              # TemporalQueryPlan, GroundedInterval, TimeGrain
   grounding.py          # t_ref + extractor fields → GroundedInterval (pure)
   grain.py              # grain expand + as_of match helpers + SQL fragment
+  merge.py              # reconcile temporal fields on re-evidence
   intent.py             # query text → TemporalQueryPlan (rules first)
   intent_llm.py         # spend-gated assist; import as leaf module
   eager_close.py        # exclusive slot close after apply
   diff.py               # pure snapshot classify (added/removed/changed)
 
 src/org_memory/services/facts_diff.py     # subject diff over query_subject_facts
-src/org_memory/domain/fact_lifecycle.py   # ranking / transitions (unchanged home)
+src/org_memory/domain/fact_lifecycle.py   # ranking / transitions
 ```
 
 - **`domain/`** keeps pure lifecycle and ranking.  
-- **`services/temporality/`** owns time interpretation and eager-close
+- **`services/temporality/`** owns time interpretation, merge, and eager-close
   orchestration that needs graph repositories.  
-- **`extraction_apply.py`** calls grounding + eager_close.  
+- **`extraction_apply.py`**, **`structured_writers.py`**, and
+  **`promotions.py`** call grounding + eager_close.  
 - **`retrieve_context.py`** calls `plan_temporal_query` when axes are omitted;
   on ambiguous plans calls `assist_temporal_query`; when the plan has
-  `range_end`, compose also returns `fact_diffs`; world/belief points cap
-  passage clocks unless the host set filters.  
-- **`POST /tools/diff_facts`** is the snapshot-diff primitive.  
+  `range_end`, compose also returns `fact_diffs` and derives passage from/to
+  caps; point queries apply upper caps only unless the host set filters.  
+- **`POST /tools/diff_facts`** is the snapshot-diff primitive (optional
+  `as_of_grain`).  
 - **Workers/conflicts** remain the async safety net and keep using the same
   ranking helpers.
 
-### Implementation sequence (one concern per commit)
+### Out of pipeline (explicit backlog)
 
-1. **`feat(temporality): add TemporalQueryPlan types and rule-based intent`**  
-   Unit tests for cue → axis and ambiguous cases; no DB.
-
-2. **`feat(temporality): ground extraction times against document event_time`**  
-   Prompt fields + `grounding.py`; unit tests for relative/absolute/default;
-   apply uses grounded windows.
-
-3. **`feat(graph): eager supersede registry-exclusive slots on apply`**  
-   After active claim/edge insert; postgres tests: two titles → one active;
-   `member_of` stays multi.
-
-4. **`feat(retrieve): apply temporal plan when as_of omitted`**  
-   Wire planner into `retrieve_context`; diagnostics; unit tests; explicit
-   request params override the planner.
-
-5. **`test(eval): temporal gold cases for current / as_of / belief`**  
-   Seed a supersession chain; assert channel outcomes.
-
-6. **Docs** stay split: `temporal-model.md` for storage and indexes; this file
-   for the pipeline.
-
-### Scope of the first wave
-
-Owned by this pipeline: grounding, eager exclusive close, intent, compose
-wiring, README/model doc alignment, temporal gold cases.
-
-**Engineering practices for every commit**
-
-- One concern per module and per commit  
-- Thin HTTP; services own behavior; repositories own SQL/ACL  
-- Fail closed (ambiguous axis → structured ambiguity; vendor errors surface)  
-- Deterministic winners; LLM only for exclusivity-when-unknown  
-- Single squashed Alembic `0001` edited in place when schema changes  
-- Affirmative docs (README + `docs/temporal-*.md` updated with behavior)  
-- Compose over primitives; no second retrieve product  
-- Tests before claiming the layer works  
-
-**Next waves (deeper temporal coverage)**
-
-- Snapshot-diff gold cases in live eval once hosts score `fact_diffs`  
-- Narrative multi-hop time and speech-act distinctions beyond structured facts 
+- Narrative multi-hop time and speech-act distinctions beyond structured facts
 
 ### Success criteria
 
@@ -460,19 +435,22 @@ wiring, README/model doc alignment, temporal gold cases.
   planner-derived plan from natural language.  
 - Multi-valued relationships stay multi after re-extract.  
 - Ambiguous temporal questions surface ambiguity instead of a silent axis.  
+- Structured/promote/glossary writers ground and eager-close like extraction.  
+- Current reads agree across facts/paths/hybrid (status + validity-now).  
+- Live gold scores current, world, belief (host+NL), grain, joint, diffs.  
 - Ruff/mypy/unit/postgres green; public URLs unchanged.
 
 ---
 
 ## 8. Summary
 
-Organizational temporal truth is a **pipeline**:
+Organizational temporal truth is a **shipped pipeline**:
 
 > **Ground facts in document time → close exclusive losers deterministically →
 > plan which clock the question needs → filter every read channel the same way →
 > verify with supersession-aware gold cases.**
 
-Org Memory already provides the ledger, ontology exclusivity, deterministic
-ranking, and temporal read filters. The build path completes grounding, eager
-write-path close, and query intent under `services/temporality/`, composed into
-extract and `retrieve_context` without a second product surface.
+Org Memory provides the ledger, ontology exclusivity, deterministic ranking,
+grounding, eager write-path close, query intent, compose grain/diffs/passage
+caps, and temporal gold under `services/temporality/` and the retrieve surface—
+without a second product API.

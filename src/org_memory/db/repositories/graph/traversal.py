@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import text as sql
 
-from org_memory.db.orm import Relationship
+from org_memory.db.orm import Relationship, utcnow
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
 from org_memory.services.temporality.grain import validity_as_of_sql
@@ -68,6 +68,13 @@ class GraphTraversalMixin(GraphRepositoryBase):
             if as_of is not None or believed_as_of is not None
             else ["active"]
         )
+        # Current reads: bind now so validity_as_of_sql matches hybrid _VALIDITY_NOW.
+        effective_as_of = as_of
+        effective_grain = as_of_grain or "unknown"
+        if as_of is None and believed_as_of is None:
+            effective_as_of = utcnow()
+            if as_of_grain is None:
+                effective_grain = "day"
         # Fetch one extra row so truncated is accurate without a second count query.
         fetch_limit = effective_limit + 1
         rows = list(
@@ -157,8 +164,8 @@ class GraphTraversalMixin(GraphRepositoryBase):
                     "start_id": start_id,
                     "rel_types": rel_types or None,
                     "statuses": statuses,
-                    "as_of": as_of,
-                    "as_of_grain": as_of_grain or "unknown",
+                    "as_of": effective_as_of,
+                    "as_of_grain": effective_grain,
                     "believed_as_of": believed_as_of,
                     "max_depth": effective_depth,
                     "limit": fetch_limit,

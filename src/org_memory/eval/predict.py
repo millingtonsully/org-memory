@@ -31,4 +31,22 @@ def predictions_from_retrieve_payload(payload: dict[str, Any]) -> CasePrediction
         for fact in block.get("facts") or []:
             _add_claim(fact.get("fact_id"))
 
-    return CasePrediction(doc_ids=tuple(doc_ids), claim_ids=tuple(claim_ids))
+    diff_pairs: list[tuple[str, str]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for block in payload.get("fact_diffs") or []:
+        for change in block.get("changed") or []:
+            from_fact = change.get("from") or {}
+            to_fact = change.get("to") or {}
+            pair = (
+                str(from_fact.get("fact_id") or "").strip(),
+                str(to_fact.get("fact_id") or "").strip(),
+            )
+            if pair[0] and pair[1] and pair not in seen_pairs:
+                seen_pairs.add(pair)
+                diff_pairs.append(pair)
+
+    return CasePrediction(
+        doc_ids=tuple(doc_ids),
+        claim_ids=tuple(claim_ids),
+        diff_changed_pairs=tuple(diff_pairs),
+    )

@@ -31,6 +31,13 @@ class RetrieveContextRequest(BaseModel):
     )
     as_of: datetime | None = None
     believed_as_of: datetime | None = None
+    as_of_grain: str | None = Field(
+        default=None,
+        description=(
+            "World-time grain for as_of matching: day|month|quarter|year|unknown. "
+            "Host value wins; otherwise the temporal planner may supply grain."
+        ),
+    )
     path_max_depth: int = Field(default=2, ge=1, le=10)
     path_limit: int = Field(default=20, ge=1, le=500)
     relationship_types: list[str] = Field(default_factory=list)
@@ -66,6 +73,7 @@ def retrieve_context(
             about=body.about,
             as_of=body.as_of,
             believed_as_of=body.believed_as_of,
+            as_of_grain=body.as_of_grain,
             path_max_depth=body.path_max_depth,
             path_limit=body.path_limit,
             relationship_types=body.relationship_types,

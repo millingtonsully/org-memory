@@ -29,6 +29,10 @@
       "format": "date-time",
       "description": "Belief-time end of the snapshot pair; must be after believed_as_of_from."
     },
+    "as_of_grain": {
+      "type": "string",
+      "description": "World-time grain applied to both as_of snapshots."
+    },
     "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}
   },
   "additionalProperties": false

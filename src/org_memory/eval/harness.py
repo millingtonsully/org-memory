@@ -28,6 +28,7 @@ class GoldCase:
     query: str
     expected_doc_ids: tuple[str, ...]
     expected_claim_ids: tuple[str, ...] = ()
+    expected_diff_changed_pairs: tuple[tuple[str, str], ...] = ()
     k: int = 10
     notes: str = ""
     mode: str = "vector_first"
@@ -35,6 +36,7 @@ class GoldCase:
     about: str | None = None
     as_of: str | None = None
     believed_as_of: str | None = None
+    as_of_grain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ class CasePrediction:
 
     doc_ids: tuple[str, ...] = ()
     claim_ids: tuple[str, ...] = ()
+    # (from_fact_id, to_fact_id) pairs from fact_diffs[].changed
+    diff_changed_pairs: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,7 @@ class CaseScore:
     claim_hit_at_k: float | None
     claim_recall_at_k: float | None
     claim_mrr: float | None
+    diff_changed_hit: float | None
 
 
 @dataclass
@@ -74,6 +79,7 @@ class EvalReport:
             "claim_hit_at_k",
             "claim_recall_at_k",
             "claim_mrr",
+            "diff_changed_hit",
         )
         for case in self.cases:
             for name in fields:
@@ -122,8 +128,20 @@ def load_gold_set(path: Path | None = None) -> list[GoldCase]:
             raise ValueError("case_id and query are required on every gold case")
         docs = tuple(str(x) for x in entry.get("expected_doc_ids") or [])
         claims = tuple(str(x) for x in entry.get("expected_claim_ids") or [])
-        if not docs and not claims:
-            raise ValueError(f"case {case_id!r} needs expected_doc_ids and/or expected_claim_ids")
+        diff_pairs_raw = entry.get("expected_diff_changed_pairs") or []
+        diff_pairs: list[tuple[str, str]] = []
+        for pair in diff_pairs_raw:
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                raise ValueError(
+                    f"case {case_id!r} expected_diff_changed_pairs entries "
+                    "must be [from_id, to_id]"
+                )
+            diff_pairs.append((str(pair[0]).strip(), str(pair[1]).strip()))
+        if not docs and not claims and not diff_pairs:
+            raise ValueError(
+                f"case {case_id!r} needs expected_doc_ids, expected_claim_ids, "
+                "and/or expected_diff_changed_pairs"
+            )
         k = int(entry.get("k", 10))
         if k < 1:
             raise ValueError(f"case {case_id!r} k must be >= 1")
@@ -137,12 +155,14 @@ def load_gold_set(path: Path | None = None) -> list[GoldCase]:
         about = entry.get("about")
         as_of = entry.get("as_of")
         believed_as_of = entry.get("believed_as_of")
+        as_of_grain = entry.get("as_of_grain")
         cases.append(
             GoldCase(
                 case_id=case_id,
                 query=query,
                 expected_doc_ids=docs,
                 expected_claim_ids=claims,
+                expected_diff_changed_pairs=tuple(diff_pairs),
                 k=k,
                 notes=str(entry.get("notes") or ""),
                 mode=mode,
@@ -150,6 +170,7 @@ def load_gold_set(path: Path | None = None) -> list[GoldCase]:
                 about=str(about).strip() if about else None,
                 as_of=str(as_of).strip() if as_of else None,
                 believed_as_of=str(believed_as_of).strip() if believed_as_of else None,
+                as_of_grain=str(as_of_grain).strip() if as_of_grain else None,
             )
         )
     if not cases:
@@ -160,6 +181,11 @@ def load_gold_set(path: Path | None = None) -> list[GoldCase]:
 def score_case(case: GoldCase, prediction: CasePrediction) -> CaseScore:
     doc_relevant = set(case.expected_doc_ids)
     claim_relevant = set(case.expected_claim_ids)
+    expected_pairs = set(case.expected_diff_changed_pairs)
+    predicted_pairs = set(prediction.diff_changed_pairs)
+    diff_hit: float | None = None
+    if expected_pairs:
+        diff_hit = 1.0 if expected_pairs <= predicted_pairs else 0.0
     return CaseScore(
         case_id=case.case_id,
         k=case.k,
@@ -184,6 +210,7 @@ def score_case(case: GoldCase, prediction: CasePrediction) -> CaseScore:
         claim_mrr=(
             mean_reciprocal_rank(prediction.claim_ids, claim_relevant) if claim_relevant else None
         ),
+        diff_changed_hit=diff_hit,
     )
 
 
@@ -210,5 +237,10 @@ def predictions_from_mapping(raw: dict[str, Any]) -> dict[str, CasePrediction]:
         out[str(case_id)] = CasePrediction(
             doc_ids=tuple(str(x) for x in payload.get("doc_ids") or []),
             claim_ids=tuple(str(x) for x in payload.get("claim_ids") or []),
+            diff_changed_pairs=tuple(
+                (str(p[0]), str(p[1]))
+                for p in (payload.get("diff_changed_pairs") or [])
+                if isinstance(p, (list, tuple)) and len(p) == 2
+            ),
         )
     return out

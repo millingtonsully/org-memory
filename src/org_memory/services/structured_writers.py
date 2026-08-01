@@ -16,6 +16,8 @@ from org_memory.db.orm import Claim, Document, utcnow
 from org_memory.db.repositories import GraphRepository, PersonRepository
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import StructuredField
+from org_memory.services.temporality.eager_close import eager_close_claim_slot
+from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.taxonomy_registry import TaxonomyRegistry, get_taxonomy_registry
 
 logger = structlog.get_logger(__name__)
@@ -82,7 +84,20 @@ class RegistryBackedStructuredFieldWriter:
                                 FactStatus.retracted,
                                 "automatic:structured_field_cleared",
                             )
+                            close_at = doc.event_time or utcnow()
+                            if rival.valid_to is None:
+                                rival.valid_to = close_at
                             rival.invalidated_at = utcnow()
+                continue
+            if doc.event_time is None:
+                logger.info(
+                    "structured_writer.missing_event_time",
+                    doc_id=doc_id,
+                    field=field.key,
+                )
+                continue
+            grounded = ground_fact_times({}, t_ref=doc.event_time)
+            if grounded is None:
                 continue
             claim = graph.add_claim(
                 Claim(
@@ -103,12 +118,14 @@ class RegistryBackedStructuredFieldWriter:
                     origin_subject_id=subject[1],
                     created_by="structured_field:ground_truth",
                     decided_by="automatic:taxonomy_registry",
-                    valid_from=doc.event_time,
+                    valid_from=grounded.valid_from,
+                    valid_to=grounded.valid_to,
+                    time_grain=grounded.time_grain,
                 )
             )
             written.append(claim.claim_id)
             if pred.mutually_exclusive:
-                graph.supersede_slot_rivals(claim, "automatic:taxonomy_registry")
+                eager_close_claim_slot(graph, claim)
         return written
 
 
