@@ -1,0 +1,56 @@
+{
+  "$comment": "MCP retrieve_context argument schema (org-memory HTTP adapter).",
+  "type": "object",
+  "required": ["query"],
+  "properties": {
+    "query": {"type": "string", "minLength": 1},
+    "mode": {
+      "type": "string",
+      "enum": ["vector_first", "graph_first", "joint"],
+      "default": "vector_first"
+    },
+    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20},
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "id"],
+        "properties": {
+          "type": {"type": "string", "minLength": 1},
+          "id": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "about": {
+      "type": "string",
+      "description": "Optional viewer-scoped name resolved into subject seeds."
+    },
+    "as_of": {"type": "string", "format": "date-time"},
+    "believed_as_of": {"type": "string", "format": "date-time"},
+    "path_max_depth": {"type": "integer", "minimum": 1, "maximum": 10, "default": 2},
+    "path_limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 20},
+    "relationship_types": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "fact_limit_per_subject": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 20
+    },
+    "max_tokens": {"type": "integer", "minimum": 1, "maximum": 200000},
+    "source_type": {"type": "string"},
+    "source_system": {"type": "string"},
+    "author": {"type": "string"},
+    "date_from": {"type": "string", "format": "date-time"},
+    "date_to": {"type": "string", "format": "date-time"},
+    "updated_from": {"type": "string", "format": "date-time"},
+    "updated_to": {"type": "string", "format": "date-time"},
+    "doc_id": {"type": "string"},
+    "half_life_days": {"type": "number", "minimum": 1, "maximum": 365, "default": 90},
+    "min_decay": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.3}
+  },
+  "additionalProperties": false
+}

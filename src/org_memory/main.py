@@ -24,6 +24,7 @@ from org_memory.api import (
     routes_procedural,
     routes_promotions,
     routes_proposals,
+    routes_retrieve,
     routes_search,
     routes_worldbuilder,
 )
@@ -66,6 +67,7 @@ app = FastAPI()
 
 # Agent tools and the write door for connectors.
 app.include_router(routes_search.router)
+app.include_router(routes_retrieve.router)
 app.include_router(routes_worldbuilder.router)
 app.include_router(routes_facts.router)
 app.include_router(routes_proposals.router)

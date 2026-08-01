@@ -32,6 +32,7 @@ from org_memory.services.entity_resolution import EntityResolutionService
 from org_memory.services.ingest import IngestService
 from org_memory.services.procedural_memory import ProceduralMemoryService
 from org_memory.services.retrieval import RetrievalService
+from org_memory.services.retrieve_context import RetrieveContextService
 from org_memory.services.worldbuilder import WorldbuilderService
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "bind_admin",
     "get_session",
     "get_retrieval_service",
+    "get_retrieve_context_service",
     "get_ingest_service",
     "get_worldbuilder_service",
     "get_procedural_memory_service",
@@ -108,6 +110,17 @@ def get_retrieval_service(session: Session = Depends(get_session)) -> RetrievalS
         reranker=get_reranker(),
         graph_repo=GraphRepository(session),
         person_repo=PersonRepository(session),
+    )
+
+
+def get_retrieve_context_service(
+    session: Session = Depends(get_session),
+) -> RetrieveContextService:
+    retrieval = get_retrieval_service(session)
+    return RetrieveContextService(
+        session=session,
+        retrieval=retrieval,
+        graph=GraphRepository(session),
     )
 
 

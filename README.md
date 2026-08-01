@@ -38,7 +38,10 @@ Facts in the graph are bi-temporal: each claim and relationship records when it 
 
 **Temporal model** for claims and relationships is documented in `docs/temporal-model.md`.
 
-Agent tools today are separate primitives: `search_knowledge_base` / `worldbuilder_kb` for passages, `query_facts` for structured claims, and `query_paths` for relationship traversal. Compose them in the host or agent until a unified retrieve tool exists.
+Agent tools: `retrieve_context` composes hybrid search, structured facts, and
+relationship paths in one call (modes `vector_first`, `graph_first`, `joint`).
+Primitives remain available: `search_knowledge_base` / `worldbuilder_kb`,
+`query_facts`, and `query_paths`.
 
 ---
 
@@ -174,7 +177,7 @@ Agent Core (or another trusted gateway) verifies the human session itself. It th
 - `X-Principal-Groups: group:<uuid>,...` when needed
 - Admin routes also need `X-Principal-Roles: admin`
 
-Tool routes include `POST /tools/search_knowledge_base`, `POST /tools/worldbuilder_kb`, `POST /tools/worldbuilder_lookup`, `POST /tools/query_facts`, `POST /tools/query_paths`, and `POST /tools/search_procedural_memory`. Procedural create is `POST /v1/procedural-memories`. Agent promote-to-taxonomy is `POST /v1/promotions`. Graph person resolve by host user is `GET /v1/graph/persons/by-platform-user/{platform_user_id}`.
+Tool routes include `POST /tools/retrieve_context`, `POST /tools/search_knowledge_base`, `POST /tools/worldbuilder_kb`, `POST /tools/worldbuilder_lookup`, `POST /tools/query_facts`, `POST /tools/query_paths`, and `POST /tools/search_procedural_memory`. Procedural create is `POST /v1/procedural-memories`. Agent promote-to-taxonomy is `POST /v1/promotions`. Graph person resolve by host user is `GET /v1/graph/persons/by-platform-user/{platform_user_id}`.
 
 ### Identity bridge (OM person ↔ host User)
 
