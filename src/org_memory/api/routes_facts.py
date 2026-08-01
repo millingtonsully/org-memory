@@ -164,9 +164,32 @@ class QueryPathsRequest(BaseModel):
     start_type: str = Field(min_length=1)
     start_id: str = Field(min_length=1)
     relationship_types: list[str] = Field(default_factory=list)
-    max_depth: int = Field(default=2, ge=1, le=3)
-    limit: int = Field(default=50, ge=1, le=200)
-    as_of: datetime | None = None
+    max_depth: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Requested walk depth; effective maximum is 3 (see capped).",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Requested path cap; effective maximum is 200 (see capped).",
+    )
+    as_of: datetime | None = Field(
+        default=None,
+        description=(
+            "World-time point. When set, walks edges whose validity window "
+            "contains as_of (active and superseded)."
+        ),
+    )
+    believed_as_of: datetime | None = Field(
+        default=None,
+        description=(
+            "System-time point: edges the service believed then "
+            "(recorded_at <= believed_as_of < invalidated_at)."
+        ),
+    )
 
 
 @router.post("/tools/query_paths")
@@ -176,7 +199,7 @@ def query_paths(
     session: Session = Depends(get_session),
 ) -> dict:
     """Deterministic multi-hop relationship walk (Postgres recursive CTE)."""
-    paths = GraphRepository(session).paths_from(
+    result = GraphRepository(session).paths_from(
         start_type=body.start_type.strip().lower(),
         start_id=body.start_id.strip(),
         principal=principal,
@@ -184,12 +207,21 @@ def query_paths(
         max_depth=body.max_depth,
         limit=body.limit,
         as_of=body.as_of,
+        believed_as_of=body.believed_as_of,
     )
     return {
         "start": {
             "type": body.start_type.strip().lower(),
             "id": body.start_id.strip(),
         },
-        "paths": paths,
-        "returned": len(paths),
+        "paths": result["paths"],
+        "returned": result["returned"],
+        "limit": result["limit"],
+        "max_depth": result["max_depth"],
+        "truncated": result["truncated"],
+        "capped": result["capped"],
+        "as_of": body.as_of.isoformat() if body.as_of else None,
+        "believed_as_of": (
+            body.believed_as_of.isoformat() if body.believed_as_of else None
+        ),
     }

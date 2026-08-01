@@ -487,7 +487,7 @@ def test_paths_from_respects_depth_and_avoids_cycles(hermetic_workspace) -> None
             principal=principal,
             max_depth=1,
             limit=50,
-        )
+        )["paths"]
         depth2 = graph.paths_from(
             start_type="person",
             start_id=person_a,
@@ -495,7 +495,7 @@ def test_paths_from_respects_depth_and_avoids_cycles(hermetic_workspace) -> None
             relationship_types=["reports_to"],
             max_depth=2,
             limit=50,
-        )
+        )["paths"]
         depth3 = graph.paths_from(
             start_type="person",
             start_id=person_a,
@@ -503,7 +503,7 @@ def test_paths_from_respects_depth_and_avoids_cycles(hermetic_workspace) -> None
             relationship_types=["reports_to"],
             max_depth=3,
             limit=50,
-        )
+        )["paths"]
 
     assert all(path["depth"] == 1 for path in depth1)
     depth1_ends = {path["nodes"][-1] for path in depth1}
@@ -573,13 +573,13 @@ def test_paths_from_hides_edges_with_private_evidence(hermetic_workspace) -> Non
             start_id=person_a,
             principal=alice,
             max_depth=1,
-        )
+        )["paths"]
         bob_paths = graph.paths_from(
             start_type="person",
             start_id=person_a,
             principal=bob,
             max_depth=1,
-        )
+        )["paths"]
 
     assert len(alice_paths) == 1
     assert bob_paths == []
@@ -647,19 +647,87 @@ def test_paths_from_filters_by_as_of_validity(hermetic_workspace) -> None:
             principal=principal,
             max_depth=1,
             as_of=_MAR,
-        )
+        )["paths"]
         in_august = graph.paths_from(
             start_type="person",
             start_id=person_a,
             principal=principal,
             max_depth=1,
             as_of=_AUG,
-        )
+        )["paths"]
 
     assert len(in_march) == 1
     assert in_march[0]["nodes"][-1] == f"person:{person_b}"
     assert len(in_august) == 1
     assert in_august[0]["nodes"][-1] == f"person:{person_c}"
+
+
+def test_paths_from_filters_by_believed_as_of(hermetic_workspace) -> None:
+    """believed_as_of reconstructs edges the service held at a past moment."""
+    from org_memory.db.engine import session_scope
+    from org_memory.db.orm import Relationship
+    from org_memory.db.repositories import GraphRepository
+    from org_memory.domain.models import Principal
+
+    doc_id = f"test:paths-belief-{hermetic_workspace}"
+    person_a = str(uuid.uuid4())
+    person_b = str(uuid.uuid4())
+
+    with session_scope() as session:
+        session.add(
+            make_doc(
+                doc_id=doc_id,
+                workspace_id=hermetic_workspace,
+                org_visible=True,
+                allowed_principals=[],
+                event_time=_JAN,
+            )
+        )
+        session.add(
+            Relationship(
+                workspace_id=hermetic_workspace,
+                from_type="person",
+                from_id=person_a,
+                to_type="person",
+                to_id=person_b,
+                relationship_type="reports_to",
+                valid_from=_JAN,
+                recorded_at=_JAN,
+                invalidated_at=_JUL,
+                status="superseded",
+                evidence_doc_ids=[doc_id],
+                created_by="test",
+            )
+        )
+
+    principal = Principal(principal_id=USER_ALICE)
+    with session_scope() as session:
+        graph = GraphRepository(session)
+        while_believed = graph.paths_from(
+            start_type="person",
+            start_id=person_a,
+            principal=principal,
+            max_depth=1,
+            believed_as_of=_MAR,
+        )["paths"]
+        after_invalidation = graph.paths_from(
+            start_type="person",
+            start_id=person_a,
+            principal=principal,
+            max_depth=1,
+            believed_as_of=_AUG,
+        )["paths"]
+        current_active_only = graph.paths_from(
+            start_type="person",
+            start_id=person_a,
+            principal=principal,
+            max_depth=1,
+        )["paths"]
+
+    assert len(while_believed) == 1
+    assert while_believed[0]["nodes"][-1] == f"person:{person_b}"
+    assert after_invalidation == []
+    assert current_active_only == []
 
 
 def test_paths_from_empty_for_unknown_start(hermetic_workspace) -> None:
@@ -668,16 +736,18 @@ def test_paths_from_empty_for_unknown_start(hermetic_workspace) -> None:
     from org_memory.domain.models import Principal
 
     with session_scope() as session:
-        paths = GraphRepository(session).paths_from(
+        result = GraphRepository(session).paths_from(
             start_type="person",
             start_id=f"person:{uuid.uuid4()}",
             principal=Principal(principal_id=USER_ALICE),
             max_depth=2,
         )
-    assert paths == []
+    assert result["paths"] == []
+    assert result["returned"] == 0
+    assert result["truncated"] is False
 
 
-def test_paths_from_respects_limit(hermetic_workspace) -> None:
+def test_paths_from_respects_limit_and_truncation_flag(hermetic_workspace) -> None:
     from org_memory.db.engine import session_scope
     from org_memory.db.orm import Relationship
     from org_memory.db.repositories import GraphRepository
@@ -712,14 +782,35 @@ def test_paths_from_respects_limit(hermetic_workspace) -> None:
             )
 
     with session_scope() as session:
-        paths = GraphRepository(session).paths_from(
+        result = GraphRepository(session).paths_from(
             start_type="person",
             start_id=person_a,
             principal=Principal(principal_id=USER_ALICE),
             max_depth=1,
             limit=2,
         )
-    assert len(paths) == 2
+    assert result["returned"] == 2
+    assert len(result["paths"]) == 2
+    assert result["truncated"] is True
+    assert result["capped"] is False
+    assert result["limit"] == 2
+
+
+def test_paths_from_sets_capped_when_depth_clamped(hermetic_workspace) -> None:
+    from org_memory.db.engine import session_scope
+    from org_memory.db.repositories import GraphRepository
+    from org_memory.domain.models import Principal
+
+    with session_scope() as session:
+        result = GraphRepository(session).paths_from(
+            start_type="person",
+            start_id=str(uuid.uuid4()),
+            principal=Principal(principal_id=USER_ALICE),
+            max_depth=99,
+            limit=50,
+        )
+    assert result["capped"] is True
+    assert result["max_depth"] == 3
 
 
 def test_query_paths_http_wires_as_of_and_limit(hermetic_workspace) -> None:
@@ -753,6 +844,7 @@ def test_query_paths_http_wires_as_of_and_limit(hermetic_workspace) -> None:
                 to_id=person_b,
                 relationship_type="reports_to",
                 valid_from=_JAN,
+                recorded_at=_JAN,
                 status="active",
                 evidence_doc_ids=[doc_id],
                 created_by="test",
@@ -769,11 +861,18 @@ def test_query_paths_http_wires_as_of_and_limit(hermetic_workspace) -> None:
             "max_depth": 1,
             "limit": 10,
             "as_of": _MAR.isoformat(),
+            "believed_as_of": _MAR.isoformat(),
         },
     )
     assert response.status_code == 200
     body = response.json()
     assert body["start"]["id"] == person_a
     assert body["returned"] == 1
+    assert body["truncated"] is False
+    assert body["capped"] is False
+    assert body["limit"] == 10
+    assert body["max_depth"] == 1
+    assert body["as_of"] is not None
+    assert body["believed_as_of"] is not None
     assert len(body["paths"][0]["edges"]) == 1
     assert body["paths"][0]["depth"] == 1

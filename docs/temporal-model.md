@@ -36,8 +36,12 @@ The axes answer different questions:
   service would have returned at that moment.
 - Omitting both returns currently active facts with open validity.
 
-`POST /tools/query_paths` accepts `as_of` and applies the same validity filter
-to relationship traversal.
+`POST /tools/query_paths` accepts both points on relationship edges:
+
+- `as_of` filters on each edge's validity window (active and superseded).
+- `believed_as_of` filters on each edge's belief window.
+- Responses include `truncated` (more paths than `limit`) and `capped`
+  (request depth/limit was clamped to hard maxima).
 
 ## Lifecycle and supersession
 
