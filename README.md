@@ -87,7 +87,7 @@ POST /tools/retrieve_context
 | `mode` | `vector_first` (default), `graph_first`, or `joint` |
 | `subjects` | Explicit `{type, id}` seeds for facts/paths |
 | `about` | Viewer-scoped name resolved into subject seeds |
-| `as_of` / `believed_as_of` | World-time and belief-time filters |
+| `as_of` / `believed_as_of` | World-time and belief-time filters (compose derives a plan from the query when omitted — see `docs/temporal-truth.md`) |
 | `max_tokens` | Optional packing budget |
 | filters | Passage filters (`source_*`, dates, `author`, …) |
 
@@ -139,9 +139,13 @@ same embedding model **reuses** stored vectors on re-ingest. Changing embedding
 model or dimensions re-embeds affected chunks.
 
 **Bi-temporal facts.** World time (`valid_from` / `valid_to`) and belief time
-(`recorded_at` / `invalidated_at`) are first-class. Superseded facts stay for
-as-of reads. Readers choose the axis that matches the question; see
-`docs/temporal-model.md`.
+(`recorded_at` / `invalidated_at`) are first-class on claims and
+relationships. Superseded facts stay for as-of reads. Document `event_time`
+anchors extracted windows. `retrieve_context`, `query_facts`, and
+`query_paths` accept `as_of` / `believed_as_of`; the hybrid fact channel uses
+the same windows when those axes are set. Ledger: `docs/temporal-model.md`.
+Write-path grounding, eager exclusive close, and query-time temporal plans:
+`docs/temporal-truth.md` (implementation in progress).
 
 **Two ACL rules.** Passages use **any-visible** (see the doc → see its chunks).
 Claims/relationships/entities use **all-visible** (every evidence doc must be
@@ -186,7 +190,8 @@ participates; `author` filters authorship. Those are distinct.
 `query_facts`, `query_paths`, and `retrieve_context` accept `as_of` and
 `believed_as_of`. When those axes are set, the hybrid fact channel inside
 `retrieve_context` uses the same windows (active + superseded). Schema `0001`
-indexes subject/endpoint plus temporal ranges. Details: `docs/temporal-model.md`.
+indexes subject/endpoint plus temporal ranges. Storage: `docs/temporal-model.md`.
+Pipeline (grounding, exclusive close, intent): `docs/temporal-truth.md`.
 
 Active facts also rank with exponential freshness
 (`FACT_FRESHNESS_HALF_LIFE_DAYS` / `FACT_FRESHNESS_MIN_DECAY`; per-predicate

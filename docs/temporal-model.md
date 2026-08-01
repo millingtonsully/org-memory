@@ -1,9 +1,13 @@
 # Temporal model
 
 Org Memory tracks two independent time axes for every structured fact (claims
-and relationships). This is the standard bi-temporal design: one axis records
-when something was true in the world, the other records what the system
-believed and when.
+and relationships). One axis records when something was true in the world; the
+other records what the system believed and when.
+
+The end-to-end **temporal truth pipeline** (grounding, eager exclusive
+supersession, query intent, and codebase mapping) lives in
+[`temporal-truth.md`](temporal-truth.md). This file is the **ledger**: axes,
+lifecycle, freshness, grains, and indexes.
 
 ## The two axes
 
@@ -25,37 +29,58 @@ The axes answer different questions:
 - "What did the system report as Alice's title in March, before the correction
   arrived in April?" is a system-time question (`believed_as_of`).
 
+## Time grain
+
+Optional `time_grain` on claims and relationships (`day`, `month`, `quarter`,
+`year`, or `unknown`) records how precise the source was. World-time matching
+respects grain (for example, “in March” uses month containment) so the ledger
+does not pretend day-level precision the evidence never had. Grain lands with
+the temporal truth pipeline ([`temporal-truth.md`](temporal-truth.md)).
+
 ## Query surface
 
-`POST /tools/query_facts` accepts both points:
+`POST /tools/query_facts` and `POST /tools/query_paths` accept both points:
 
-- `as_of` filters on the validity window. Because a superseded fact keeps its
-  original validity interval, as-of reads include both `active` and
-  `superseded` claims whose window contains the point.
+- `as_of` filters on the validity window. Superseded facts keep their original
+  validity interval, so as-of reads include both `active` and `superseded`
+  rows whose window contains the point.
 - `believed_as_of` filters on the belief window, reconstructing what the
   service would have returned at that moment.
 - Omitting both returns currently active facts with open validity.
 
-`POST /tools/query_paths` accepts both points on relationship edges:
-
-- `as_of` filters on each edge's validity window (active and superseded).
-- `believed_as_of` filters on each edge's belief window.
-- Responses include `truncated` (more paths than `limit`) and `capped`
-  (request depth/limit was clamped to hard maxima).
+`retrieve_context` accepts the same parameters. Explicit timestamps from the
+host always win. When both axes are omitted, compose derives a temporal plan
+from the query text once the intent layer is wired (see
+[`temporal-truth.md`](temporal-truth.md)). Path responses include `truncated`
+(more paths than `limit`) and `capped` (request depth/limit was clamped to
+hard maxima).
 
 ## Lifecycle and supersession
 
 Facts move through explicit states (`domain/fact_lifecycle.py`): proposed,
 active, superseded, retracted. Losing values in a mutually exclusive slot are
-superseded with a pointer to the winning fact and an `invalidated_at`
-timestamp. They stay in the database for audit and as-of reads. Retraction
-happens when a fact's last evidence document is deleted; retracted facts leave
-the active read path the same way.
+superseded with:
+
+- `valid_to` set to the winner’s `valid_from` when available (else a sound
+  close time),
+- `invalidated_at` set to the moment of supersession,
+- `superseded_by_*` pointing at the winning fact.
+
+Rows stay for audit and as-of reads. Retraction happens when a fact's last
+evidence document is deleted.
 
 Winner selection is deterministic: precedence class, newest supporting
 evidence, confidence, evidence count, then stable id. A model may judge
 whether a predicate is mutually exclusive when the taxonomy registry does not
 say, but it never picks the winning value.
+
+Supersession closes losers with both world-time and belief-time stamps (see
+lifecycle above). Registry-exclusive keys also get an eager write-path close
+so “current” readers see one winner as soon as an active fact is applied; the
+async conflict worker remains the safety net for duplicates, races,
+promotions, and registry-unknown exclusivity. That write-path behavior is
+part of the temporal truth pipeline — see
+[`temporal-truth.md`](temporal-truth.md).
 
 ## Freshness on the read path
 
@@ -65,7 +90,8 @@ Separately from validity, active facts decay in ranking as they age.
 (`FACT_FRESHNESS_HALF_LIFE_DAYS`, per-predicate override
 `freshness_half_life_days`) and a floor (`FACT_FRESHNESS_MIN_DECAY`) so old
 facts rank lower without disappearing. Passage retrieval applies the same
-decay shape to document event times.
+decay shape to document event times. Freshness ranking is not a substitute
+for supersession.
 
 ## Indexes
 
@@ -83,13 +109,15 @@ without scanning the full table:
 
 Because this project keeps a single squashed Alembic revision, already-migrated
 databases must be reset or recreated so `alembic upgrade head` applies the
-new indexes. Fresh CI and Docker databases pick them up automatically.
+new indexes and columns. Fresh CI and Docker databases pick them up
+automatically.
 
 ## Documents and chunks
 
 Documents carry `event_time` (when the content happened in the source system)
 and ACL event times used for last-writer-wins conflict resolution on
 permission changes. Stale envelopes, detected by comparing event times, are
-rejected rather than applied out of order. Chunk-level `content_hash` values
-let re-ingest keep embeddings for text that did not change, so temporal churn
-in metadata never forces re-embedding.
+rejected rather than applied out of order. Document `event_time` is the
+reference clock (`t_ref`) for grounding extracted fact windows. Chunk-level
+`content_hash` values let re-ingest keep embeddings for text that did not
+change, so temporal churn in metadata never forces re-embedding.
