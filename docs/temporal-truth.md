@@ -106,10 +106,9 @@ consistent read filters. Multi-valued predicates (`member_of`, skills) stay
 multi-valued. Ranking freshness and passage recency remain separate signals;
 they complement the ledger rather than replace supersession.
 
-**Next capabilities (separate waves).** Broader temporal gold set (belief-axis
-live eval, diff cases). Passage candidates honor world `as_of` as an
-`event_time` upper bound and belief `believed_as_of` as an `updated_at` upper
-bound when the host omits explicit date filters (`diagnostics.passage_temporal`).
+**Next capabilities (separate waves).** Temporal gold coverage now includes
+current winner, NL world-axis, belief-axis, and multi-valued `member_of`
+cases in `evals/retrieval/gold_set.json`.
 
 ---
 
@@ -445,7 +444,8 @@ wiring, README/model doc alignment, temporal gold cases.
 
 **Next waves (deeper temporal coverage)**
 
-- Broader temporal gold set (belief-axis live eval, diff cases) 
+- Snapshot-diff gold cases in live eval once hosts score `fact_diffs`  
+- Narrative multi-hop time and speech-act distinctions beyond structured facts 
 
 ### Success criteria
 

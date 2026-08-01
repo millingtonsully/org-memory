@@ -14,6 +14,7 @@ from org_memory.eval.harness import GoldCase
 
 _EVENT = datetime(2026, 3, 1, tzinfo=UTC)
 _JAN = datetime(2026, 1, 1, tzinfo=UTC)
+_MAR = datetime(2026, 3, 15, tzinfo=UTC)
 _JUN = datetime(2026, 6, 1, tzinfo=UTC)
 _JUL = datetime(2026, 7, 1, tzinfo=UTC)
 
@@ -93,6 +94,9 @@ def seed_gold_corpus(
     reserved_claim_ids = {
         "claim:alice-title-engineer",
         "claim:alice-title-manager",
+        "claim:alice-title-belief-wrong",
+        "claim:alice-member-platform",
+        "claim:alice-member-infra",
         "claim:carepod-definition",
         "claim:carol-reports-to-dan",
     }
@@ -193,6 +197,26 @@ def seed_gold_corpus(
     session.flush()
 
     # Claims with ids required by the gold set.
+    # Belief timeline: Intern (Jan–Mar) → Engineer (Mar–Jul) → Manager (Jul–).
+    # World timeline: Engineer valid Jan–Jul, Manager from Jul.
+    session.add(
+        Claim(
+            claim_id="claim:alice-title-belief-wrong",
+            workspace_id=workspace_id,
+            subject_type="person",
+            subject_id=alice_id,
+            predicate="title",
+            object_text="Intern",
+            valid_from=_JAN,
+            valid_to=None,
+            recorded_at=_JAN,
+            invalidated_at=_MAR,
+            confidence=0.7,
+            status="superseded",
+            evidence_doc_ids=["hr:alice-title-correction"],
+            created_by="eval",
+        )
+    )
     session.add(
         Claim(
             claim_id="claim:alice-title-engineer",
@@ -203,7 +227,8 @@ def seed_gold_corpus(
             object_text="Engineer",
             valid_from=_JAN,
             valid_to=_JUL,
-            recorded_at=_JAN,
+            recorded_at=_MAR,
+            invalidated_at=_JUL,
             confidence=0.95,
             status="superseded",
             evidence_doc_ids=["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
@@ -223,6 +248,36 @@ def seed_gold_corpus(
             confidence=0.95,
             status="active",
             evidence_doc_ids=["slack:promo-thread-2026-06"],
+            created_by="eval",
+        )
+    )
+    session.add(
+        Claim(
+            claim_id="claim:alice-member-platform",
+            workspace_id=workspace_id,
+            subject_type="person",
+            subject_id=alice_id,
+            predicate="member_of",
+            object_text="Platform",
+            recorded_at=_EVENT,
+            confidence=0.9,
+            status="active",
+            evidence_doc_ids=["notion:alice-teams"],
+            created_by="eval",
+        )
+    )
+    session.add(
+        Claim(
+            claim_id="claim:alice-member-infra",
+            workspace_id=workspace_id,
+            subject_type="person",
+            subject_id=alice_id,
+            predicate="member_of",
+            object_text="Infra",
+            recorded_at=_EVENT,
+            confidence=0.9,
+            status="active",
+            evidence_doc_ids=["notion:alice-teams"],
             created_by="eval",
         )
     )

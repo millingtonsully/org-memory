@@ -104,29 +104,14 @@ def test_cli_missing_predictions_is_clear(tmp_path: Path) -> None:
 
 
 def test_cli_scores_predictions(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    preds = {
-        "title-change-world-time": {
-            "doc_ids": ["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
-            "claim_ids": ["claim:alice-title-engineer"],
-        },
-        "team-membership": {
-            "doc_ids": ["email:bob-onboarding", "notion:org-chart-q2"],
-        },
-        "glossary-definition": {
-            "doc_ids": ["notion:glossary-carepod"],
-            "claim_ids": ["claim:carepod-definition"],
-        },
-        "reports-to-path": {
-            "doc_ids": ["hr:carol-manager-note"],
-            "claim_ids": ["claim:carol-reports-to-dan"],
-        },
-    }
-    pred_path = tmp_path / "preds.json"
-    pred_path.write_text(json.dumps(preds), encoding="utf-8")
-    assert score_main(["--predictions", str(pred_path)]) == 0
+    from org_memory.eval.harness import default_gold_path
+
+    example = default_gold_path().parent / "example_predictions.json"
+    assert score_main(["--predictions", str(example)]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["case_count"] == 4
+    assert payload["case_count"] == len(load_gold_set())
     assert payload["averages"]["doc_hit_at_k"] == 1.0
+    assert not payload["missing_predictions"]
 
 
 def test_predictions_from_mapping_roundtrip() -> None:

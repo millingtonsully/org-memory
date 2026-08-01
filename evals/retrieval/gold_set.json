@@ -14,6 +14,50 @@
       "notes": "World-time question; prefer the pre-promotion claim and supporting docs."
     },
     {
+      "case_id": "title-current-winner",
+      "query": "What is Alice's current title?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "expected_doc_ids": ["slack:promo-thread-2026-06"],
+      "expected_claim_ids": ["claim:alice-title-manager"],
+      "k": 5,
+      "notes": "Current axis; exclusive title slot must return the post-July winner."
+    },
+    {
+      "case_id": "title-world-march-nl",
+      "query": "What was Alice's title in March 2026?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "expected_doc_ids": ["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
+      "expected_claim_ids": ["claim:alice-title-engineer"],
+      "k": 5,
+      "notes": "Natural-language world axis; compose plan supplies as_of without host timestamp."
+    },
+    {
+      "case_id": "title-belief-pre-correction",
+      "query": "What did we report as Alice's title in February 2026?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "believed_as_of": "2026-02-15T00:00:00+00:00",
+      "expected_doc_ids": ["hr:alice-title-correction"],
+      "expected_claim_ids": ["claim:alice-title-belief-wrong"],
+      "k": 5,
+      "notes": "Belief axis; pre-correction value while the system still held the wrong title."
+    },
+    {
+      "case_id": "alice-multi-member",
+      "query": "Which teams is Alice on?",
+      "mode": "joint",
+      "subjects": [{"type": "person", "id": "eval-person-alice"}],
+      "expected_doc_ids": ["notion:alice-teams"],
+      "expected_claim_ids": [
+        "claim:alice-member-platform",
+        "claim:alice-member-infra"
+      ],
+      "k": 5,
+      "notes": "Multi-valued member_of stays multi; both team claims are expected."
+    },
+    {
       "case_id": "team-membership",
       "query": "Which team is Bob on?",
       "mode": "vector_first",

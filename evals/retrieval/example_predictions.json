@@ -3,6 +3,22 @@
     "doc_ids": ["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
     "claim_ids": ["claim:alice-title-engineer"]
   },
+  "title-current-winner": {
+    "doc_ids": ["slack:promo-thread-2026-06"],
+    "claim_ids": ["claim:alice-title-manager"]
+  },
+  "title-world-march-nl": {
+    "doc_ids": ["slack:promo-thread-2026-06", "hr:offer-letter-alice"],
+    "claim_ids": ["claim:alice-title-engineer"]
+  },
+  "title-belief-pre-correction": {
+    "doc_ids": ["hr:alice-title-correction"],
+    "claim_ids": ["claim:alice-title-belief-wrong"]
+  },
+  "alice-multi-member": {
+    "doc_ids": ["notion:alice-teams"],
+    "claim_ids": ["claim:alice-member-platform", "claim:alice-member-infra"]
+  },
   "team-membership": {
     "doc_ids": ["email:bob-onboarding", "notion:org-chart-q2"],
     "claim_ids": []
