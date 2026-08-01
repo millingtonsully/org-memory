@@ -124,8 +124,8 @@ expansion alongside passages.
 
 **Postgres as the memory store.** Documents, vectors, FTS, graph, and jobs live
 in one database operators already run (including managed Postgres with
-pgvector). Path ACL is applied after traversal today, so dense private graphs
-can under-return versus a fully ACL-aware walk.
+pgvector). Path walks enforce all-visible evidence ACL inside the recursive
+SQL so private edges never consume the path budget.
 
 **Hybrid search inside Postgres.** Dense (pgvector / HNSW) plus lexical
 (Postgres full-text search with `ts_rank`), merged with reciprocal rank fusion,
@@ -184,8 +184,9 @@ participates; `author` filters authorship. Those are distinct.
 - **System time** — when the service believed it.
 
 `query_facts`, `query_paths`, and `retrieve_context` accept `as_of` and
-`believed_as_of`. Schema `0001` indexes subject/endpoint plus temporal ranges.
-Details: `docs/temporal-model.md`.
+`believed_as_of`. When those axes are set, the hybrid fact channel inside
+`retrieve_context` uses the same windows (active + superseded). Schema `0001`
+indexes subject/endpoint plus temporal ranges. Details: `docs/temporal-model.md`.
 
 Active facts also rank with exponential freshness
 (`FACT_FRESHNESS_HALF_LIFE_DAYS` / `FACT_FRESHNESS_MIN_DECAY`; per-predicate

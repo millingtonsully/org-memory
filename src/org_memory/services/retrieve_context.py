@@ -121,6 +121,8 @@ class RetrieveContextService:
                 half_life_days=half_life_days,
                 min_decay=min_decay,
                 tool_name="retrieve_context",
+                as_of=as_of,
+                believed_as_of=believed_as_of,
             )
 
         def run_graph() -> tuple[list[dict], list[dict]]:

@@ -89,6 +89,22 @@ def test_vector_first_without_subjects_skips_about_scope() -> None:
     assert stub.calls[0]["tool_name"] == "retrieve_context"
 
 
+def test_retrieve_passes_temporal_axes_to_search() -> None:
+    service, stub = _service()
+    as_of = datetime(2026, 3, 15, tzinfo=UTC)
+    believed = datetime(2026, 4, 1, tzinfo=UTC)
+    service.retrieve(
+        principal=Principal(principal_id="user:11111111-1111-1111-1111-111111111111"),
+        query="title history",
+        mode="vector_first",
+        subjects=[],
+        as_of=as_of,
+        believed_as_of=believed,
+    )
+    assert stub.calls[0]["as_of"] == as_of
+    assert stub.calls[0]["believed_as_of"] == believed
+
+
 def test_graph_first_requires_subjects() -> None:
     service, stub = _service()
     with pytest.raises(ValueError, match="graph_first requires"):

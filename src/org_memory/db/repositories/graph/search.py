@@ -10,6 +10,38 @@ from org_memory.db.repositories._common import _document_visibility_filters_sql
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
 
+# Shared temporal predicates for claim and relationship legs.
+_VALIDITY_NOW = """
+    (c.valid_from IS NULL OR c.valid_from <= now())
+    AND (c.valid_to IS NULL OR c.valid_to > now())
+"""
+_VALIDITY_AS_OF = """
+    (CAST(:as_of AS timestamptz) IS NULL
+     OR ((c.valid_from IS NULL OR c.valid_from <= :as_of)
+         AND (c.valid_to IS NULL OR c.valid_to > :as_of)))
+"""
+_BELIEF_AS_OF = """
+    (CAST(:believed_as_of AS timestamptz) IS NULL
+     OR (c.recorded_at <= :believed_as_of
+         AND (c.invalidated_at IS NULL
+              OR c.invalidated_at > :believed_as_of)))
+"""
+_REL_VALIDITY_NOW = """
+    (r.valid_from IS NULL OR r.valid_from <= now())
+    AND (r.valid_to IS NULL OR r.valid_to > now())
+"""
+_REL_VALIDITY_AS_OF = """
+    (CAST(:as_of AS timestamptz) IS NULL
+     OR ((r.valid_from IS NULL OR r.valid_from <= :as_of)
+         AND (r.valid_to IS NULL OR r.valid_to > :as_of)))
+"""
+_REL_BELIEF_AS_OF = """
+    (CAST(:believed_as_of AS timestamptz) IS NULL
+     OR (r.recorded_at <= :believed_as_of
+         AND (r.invalidated_at IS NULL
+              OR r.invalidated_at > :believed_as_of)))
+"""
+
 
 class GraphSearchMixin(GraphRepositoryBase):
     """FTS candidates whose entire evidence set is viewer-visible in SQL."""
@@ -31,9 +63,25 @@ class GraphSearchMixin(GraphRepositoryBase):
         author_person_ids: list[str] | None = None,
         about_person_ids: list[str] | None = None,
         about_doc_ids: list[str] | None = None,
+        as_of: datetime | None = None,
+        believed_as_of: datetime | None = None,
     ) -> list[dict]:
-        """Keyword candidates filtered by current evidence ACL in SQL.
+        """Keyword candidates filtered by evidence ACL and temporal axes in SQL.
+
+        When ``as_of`` / ``believed_as_of`` are unset, only currently active and
+        currently valid facts participate (hybrid "true now"). When either axis
+        is set, active and superseded rows whose windows contain the point are
+        eligible — matching ``query_facts`` / ``paths_from``.
         """
+        temporal = as_of is not None or believed_as_of is not None
+        statuses = ["active", "superseded"] if temporal else ["active"]
+        if temporal:
+            claim_temporal = f"{_VALIDITY_AS_OF} AND {_BELIEF_AS_OF}"
+            rel_temporal = f"{_REL_VALIDITY_AS_OF} AND {_REL_BELIEF_AS_OF}"
+        else:
+            claim_temporal = _VALIDITY_NOW
+            rel_temporal = _REL_VALIDITY_NOW
+
         rows = self._session.execute(
             sql(f"""
                 WITH query AS (
@@ -51,6 +99,7 @@ class GraphSearchMixin(GraphRepositoryBase):
                         c.predicate || ': ' || c.object_text AS fact_text,
                         c.predicate AS predicate,
                         c.confidence,
+                        c.status AS status,
                         c.valid_from AS valid_from,
                         c.recorded_at AS recorded_at,
                         evidence.doc_ids AS evidence_doc_ids,
@@ -71,9 +120,8 @@ class GraphSearchMixin(GraphRepositoryBase):
                         WHERE v.doc_id = ANY(c.evidence_doc_ids)
                     ) evidence
                     WHERE c.workspace_id = :workspace_id
-                      AND c.status = 'active'
-                      AND (c.valid_from IS NULL OR c.valid_from <= now())
-                      AND (c.valid_to IS NULL OR c.valid_to > now())
+                      AND c.status = ANY(CAST(:statuses AS text[]))
+                      AND {claim_temporal}
                       AND cardinality(c.evidence_doc_ids) > 0
                       AND cardinality(evidence.doc_ids) = (
                           SELECT count(DISTINCT e) FROM unnest(c.evidence_doc_ids) AS e
@@ -94,6 +142,7 @@ class GraphSearchMixin(GraphRepositoryBase):
                         ) AS fact_text,
                         r.relationship_type AS predicate,
                         r.confidence,
+                        r.status AS status,
                         r.valid_from AS valid_from,
                         r.recorded_at AS recorded_at,
                         evidence.doc_ids AS evidence_doc_ids,
@@ -115,9 +164,8 @@ class GraphSearchMixin(GraphRepositoryBase):
                         WHERE v.doc_id = ANY(r.evidence_doc_ids)
                     ) evidence
                     WHERE r.workspace_id = :workspace_id
-                      AND r.status = 'active'
-                      AND (r.valid_from IS NULL OR r.valid_from <= now())
-                      AND (r.valid_to IS NULL OR r.valid_to > now())
+                      AND r.status = ANY(CAST(:statuses AS text[]))
+                      AND {rel_temporal}
                       AND cardinality(r.evidence_doc_ids) > 0
                       AND cardinality(evidence.doc_ids) = (
                           SELECT count(DISTINCT e) FROM unnest(r.evidence_doc_ids) AS e
@@ -149,6 +197,9 @@ class GraphSearchMixin(GraphRepositoryBase):
                 "updated_from": updated_from,
                 "updated_to": updated_to,
                 "doc_id": doc_id,
+                "statuses": statuses,
+                "as_of": as_of,
+                "believed_as_of": believed_as_of,
                 "limit": limit,
             },
         ).mappings()
@@ -167,6 +218,7 @@ class GraphSearchMixin(GraphRepositoryBase):
                     "text": row["fact_text"],
                     "predicate": row["predicate"],
                     "confidence": float(row["confidence"]),
+                    "status": row["status"] or "active",
                     "valid_from": row["valid_from"],
                     "recorded_at": row["recorded_at"],
                     "evidence_doc_ids": list(row["evidence_doc_ids"]),

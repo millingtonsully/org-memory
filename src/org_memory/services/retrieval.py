@@ -98,6 +98,8 @@ class RetrievalService:
         min_decay: float = 0.3,
         tool_name: str = "search_knowledge_base",
         mode: str = "hybrid",
+        as_of: datetime | None = None,
+        believed_as_of: datetime | None = None,
     ) -> SearchResponse:
         settings = get_settings()
         candidate_pool = settings.rerank_candidates
@@ -221,6 +223,8 @@ class RetrievalService:
                 author_person_ids=author_person_ids,
                 about_person_ids=about_person_ids,
                 about_doc_ids=about_doc_ids,
+                as_of=as_of,
+                believed_as_of=believed_as_of,
             )
 
         by_id: dict[str, dict] = {}

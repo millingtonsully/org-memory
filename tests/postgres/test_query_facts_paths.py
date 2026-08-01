@@ -658,6 +658,87 @@ def test_paths_from_hides_edges_with_private_evidence(hermetic_workspace) -> Non
     assert bob_paths == []
 
 
+def test_paths_from_does_not_starve_on_private_siblings(hermetic_workspace) -> None:
+    """Private edges must not fill the path budget ahead of a visible edge.
+
+    Before in-SQL ACL, the walk overfetched then filtered in Python; many
+    private siblings could consume the CTE limit and hide the public path.
+    """
+    from org_memory.db.engine import session_scope
+    from org_memory.db.orm import Relationship
+    from org_memory.db.repositories import GraphRepository
+    from org_memory.domain.models import Principal
+
+    public_id = f"test:paths-starve-public-{hermetic_workspace}"
+    private_id = f"test:paths-starve-private-{hermetic_workspace}"
+    person_a = str(uuid.uuid4())
+    public_target = str(uuid.uuid4())
+
+    with session_scope() as session:
+        session.add(
+            make_doc(
+                doc_id=public_id,
+                workspace_id=hermetic_workspace,
+                org_visible=True,
+                allowed_principals=[],
+                event_time=_JAN,
+            )
+        )
+        session.add(
+            make_doc(
+                doc_id=private_id,
+                workspace_id=hermetic_workspace,
+                org_visible=False,
+                allowed_principals=[USER_ALICE],
+                event_time=_JAN,
+            )
+        )
+        # Lexicographically early ids so private edges sort first under
+        # ORDER BY depth, relationship_id.
+        for i in range(20):
+            session.add(
+                Relationship(
+                    relationship_id=f"0000-private-{i:02d}-{hermetic_workspace}",
+                    workspace_id=hermetic_workspace,
+                    from_type="person",
+                    from_id=person_a,
+                    to_type="person",
+                    to_id=str(uuid.uuid4()),
+                    relationship_type="reports_to",
+                    status="active",
+                    evidence_doc_ids=[private_id],
+                    created_by="test",
+                )
+            )
+        session.add(
+            Relationship(
+                relationship_id=f"zzzz-public-{hermetic_workspace}",
+                workspace_id=hermetic_workspace,
+                from_type="person",
+                from_id=person_a,
+                to_type="person",
+                to_id=public_target,
+                relationship_type="reports_to",
+                status="active",
+                evidence_doc_ids=[public_id],
+                created_by="test",
+            )
+        )
+
+    bob = Principal(principal_id=USER_BOB)
+    with session_scope() as session:
+        bob_paths = GraphRepository(session).paths_from(
+            start_type="person",
+            start_id=person_a,
+            principal=bob,
+            max_depth=1,
+            limit=1,
+        )["paths"]
+
+    assert len(bob_paths) == 1
+    assert bob_paths[0]["edges"][0]["to"]["id"] == public_target
+
+
 def test_paths_from_filters_by_as_of_validity(hermetic_workspace) -> None:
     """Path edges outside the as_of validity window are excluded."""
     from org_memory.db.engine import session_scope
@@ -949,3 +1030,58 @@ def test_query_paths_http_wires_as_of_and_limit(hermetic_workspace) -> None:
     assert body["believed_as_of"] is not None
     assert len(body["paths"][0]["edges"]) == 1
     assert body["paths"][0]["depth"] == 1
+
+
+def test_fact_candidates_honor_as_of_for_superseded(hermetic_workspace) -> None:
+    """Hybrid fact channel includes superseded claims when as_of is set."""
+    from org_memory.db.engine import session_scope
+    from org_memory.db.orm import Claim
+    from org_memory.db.repositories import GraphRepository
+    from org_memory.domain.models import Principal
+
+    doc_id = f"test:fact-cand-asof-{hermetic_workspace}"
+    subject = str(uuid.uuid4())
+    old_id = f"claim-old-{uuid.uuid4().hex[:8]}"
+    # Distinctive token so FTS is stable across other workspace noise.
+    phrase = f"ZephyrEngineer{hermetic_workspace[:8]}"
+
+    with session_scope() as session:
+        session.add(
+            make_doc(
+                doc_id=doc_id,
+                workspace_id=hermetic_workspace,
+                org_visible=True,
+                allowed_principals=[],
+                event_time=_JAN,
+            )
+        )
+        session.add(
+            Claim(
+                claim_id=old_id,
+                workspace_id=hermetic_workspace,
+                subject_type="person",
+                subject_id=subject,
+                predicate="title",
+                object_text=phrase,
+                valid_from=_JAN,
+                valid_to=_JUL,
+                recorded_at=_JAN,
+                confidence=0.9,
+                status="superseded",
+                evidence_doc_ids=[doc_id],
+                created_by="test",
+            )
+        )
+
+    principal = Principal(principal_id=USER_ALICE)
+    with session_scope() as session:
+        graph = GraphRepository(session)
+        without = graph.fact_candidates(phrase, principal, limit=10)
+        with_as_of = graph.fact_candidates(
+            phrase, principal, limit=10, as_of=_MAR
+        )
+
+    assert all(hit["fact_id"] != old_id for hit in without)
+    matched = [hit for hit in with_as_of if hit["fact_id"] == old_id]
+    assert len(matched) == 1
+    assert matched[0]["status"] == "superseded"
