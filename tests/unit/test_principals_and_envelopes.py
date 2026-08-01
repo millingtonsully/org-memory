@@ -52,6 +52,30 @@ def test_delete_exempt_from_principal_requirement() -> None:
     assert envelope.change_kind is ChangeKind.delete
 
 
+def test_event_time_requires_timezone() -> None:
+    with pytest.raises(ValidationError, match="timezone-aware"):
+        ChangeEnvelope(
+            source_system="test",
+            external_id="1",
+            change_kind=ChangeKind.create,
+            source_type="doc",
+            event_time=datetime(2026, 7, 1),
+            org_visible=True,
+        )
+
+
+def test_event_time_rejects_epoch_default() -> None:
+    with pytest.raises(ValidationError, match="1990"):
+        ChangeEnvelope(
+            source_system="test",
+            external_id="1",
+            change_kind=ChangeKind.create,
+            source_type="doc",
+            event_time=datetime(1970, 1, 1, tzinfo=UTC),
+            org_visible=True,
+        )
+
+
 def test_principal_model() -> None:
     p = Principal(principal_id=USER_A, groups=[GROUP_B])
     assert USER_A in p.all_principals()

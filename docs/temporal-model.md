@@ -126,7 +126,9 @@ automatically.
 Documents carry `event_time` (when the content happened in the source system)
 and ACL event times used for last-writer-wins conflict resolution on
 permission changes. Stale envelopes, detected by comparing event times, are
-rejected rather than applied out of order. Document `event_time` is the
+rejected rather than applied out of order. Ingress rejects naive
+`event_time` values, years before 1990 (common unset/default clocks), and
+timestamps more than one day in the future. Document `event_time` is the
 reference clock (`t_ref`) for grounding extracted fact windows. Chunk-level
 `content_hash` values let re-ingest keep embeddings for text that did not
 change, so temporal churn in metadata never forces re-embedding.

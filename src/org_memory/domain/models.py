@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from org_memory.domain.principals import require_principal
+
+# Refuse connector defaults (epoch / unset clocks) and far-future skew.
+_EVENT_TIME_MIN_YEAR = 1990
+_EVENT_TIME_MAX_FUTURE = timedelta(days=1)
 
 
 class ChangeKind(str, Enum):
@@ -103,7 +107,13 @@ class ChangeEnvelope(BaseModel):
         ),
     )
 
-    event_time: datetime = Field(description="when this happened in the world")
+    event_time: datetime = Field(
+        description=(
+            "When this happened in the source world. Must be timezone-aware "
+            "(UTC recommended), year >= 1990, and not more than one day in the future. "
+            "Used as t_ref for temporal grounding."
+        ),
+    )
 
     # Who may read this. If org_visible is false and allowed_principals is
     # empty, nobody can retrieve it. Principals must be user:<uuid> or group:<uuid>.
@@ -124,6 +134,28 @@ class ChangeEnvelope(BaseModel):
     parent_external_id: str = Field(default="", description="thread/channel/page parent")
     deep_link: str = Field(default="", description="URL back to the source object")
     metadata: dict = Field(default_factory=dict)
+
+    @field_validator("event_time")
+    @classmethod
+    def _validate_event_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError(
+                "event_time must be timezone-aware (include offset or Z); "
+                "UTC is recommended"
+            )
+        aware = value.astimezone(UTC)
+        if aware.year < _EVENT_TIME_MIN_YEAR:
+            raise ValueError(
+                f"event_time year must be >= {_EVENT_TIME_MIN_YEAR} "
+                "(refuse unset/default connector clocks)"
+            )
+        now = datetime.now(UTC)
+        if aware > now + _EVENT_TIME_MAX_FUTURE:
+            raise ValueError(
+                "event_time is more than one day in the future; "
+                "refuse speculative or misconfigured clocks"
+            )
+        return aware
 
     @field_validator("allowed_principals")
     @classmethod

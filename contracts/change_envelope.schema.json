@@ -156,7 +156,7 @@
       "type": "array"
     },
     "event_time": {
-      "description": "when this happened in the world",
+      "description": "When this happened in the source world. Timezone-aware ISO-8601 required (UTC recommended). Year must be >= 1990. Must not be more than one day in the future. Used as t_ref for temporal grounding.",
       "format": "date-time",
       "title": "Event Time",
       "type": "string"

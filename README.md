@@ -390,7 +390,9 @@ narrow flows.
 ### Ingest
 
 Workers emit ChangeEnvelope JSON to `POST /ingress/envelope`. Principals use
-`user:<uuid>` and `group:<uuid>`. Permission-change envelopes update ACL
+`user:<uuid>` and `group:<uuid>`. `event_time` must be timezone-aware (UTC
+recommended), year ≥ 1990, and not more than one day in the future — it is
+`t_ref` for temporal grounding. Permission-change envelopes update ACL
 fields and ACL event times (last-writer-wins on those times). Connectors
 (Slack, Gmail, …) stay on the host; Org Memory consumes their envelopes.
 
