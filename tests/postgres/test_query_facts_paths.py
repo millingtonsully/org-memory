@@ -186,6 +186,81 @@ def test_claims_for_viewer_filters_by_system_time(hermetic_workspace) -> None:
     assert after_invalidation == []
 
 
+def test_claims_for_viewer_belief_only_requires_world_validity(hermetic_workspace) -> None:
+    """Belief-only also filters world validity at the belief instant."""
+    from org_memory.db.engine import session_scope
+    from org_memory.db.orm import Claim
+    from org_memory.db.repositories import GraphRepository
+    from org_memory.domain.models import Principal
+
+    subject = _subject()
+    doc_id = f"test:facts-belief-world-{hermetic_workspace}"
+    closed_id = f"claim-closed-{uuid.uuid4().hex[:8]}"
+    open_id = f"claim-open-{uuid.uuid4().hex[:8]}"
+
+    with session_scope() as session:
+        session.add(
+            make_doc(
+                doc_id=doc_id,
+                workspace_id=hermetic_workspace,
+                org_visible=True,
+                allowed_principals=[],
+                event_time=_JAN,
+            )
+        )
+        # Believed in March, but world-closed before March → omitted.
+        session.add(
+            Claim(
+                claim_id=closed_id,
+                workspace_id=hermetic_workspace,
+                subject_type="person",
+                subject_id=subject,
+                predicate="title",
+                object_text="Intern",
+                valid_from=_JAN,
+                valid_to=_MAR.replace(month=2, day=1),
+                recorded_at=_JAN,
+                invalidated_at=None,
+                confidence=0.9,
+                status="active",
+                evidence_doc_ids=[doc_id],
+                created_by="test",
+            )
+        )
+        # Believed and world-valid in March → kept.
+        session.add(
+            Claim(
+                claim_id=open_id,
+                workspace_id=hermetic_workspace,
+                subject_type="person",
+                subject_id=subject,
+                predicate="department",
+                object_text="Engineering",
+                valid_from=_JAN,
+                valid_to=None,
+                recorded_at=_JAN,
+                invalidated_at=None,
+                confidence=0.9,
+                status="active",
+                evidence_doc_ids=[doc_id],
+                created_by="test",
+            )
+        )
+
+    principal = Principal(principal_id=USER_ALICE)
+    with session_scope() as session:
+        graph = GraphRepository(session)
+        at_belief = graph.claims_for_viewer(
+            "person",
+            subject,
+            principal,
+            statuses=["active", "superseded"],
+            believed_as_of=_MAR,
+        )
+
+    assert [c.claim_id for c, _ in at_belief] == [open_id]
+
+
 def test_query_facts_http_believed_as_of_returns_superseded(hermetic_workspace) -> None:
     """HTTP believed_as_of must not drop superseded claims that were believed then."""
     from fastapi.testclient import TestClient

@@ -269,10 +269,11 @@ The temporal gold suite locks L3–L6 behavior:
 1. Two titles in sequence → “current” returns only the winner.  
 2. Mid-window `as_of` returns the March title, not the June title.  
 3. Belief-axis questions (host timestamp and NL planner) return the
-   pre-correction belief.  
+   pre-correction belief, including world validity at that belief instant.  
 4. Multi-valued `team` keeps both teams.  
 5. Host `as_of_grain` and NL range plans exercise grain and `fact_diffs`.  
-6. Joint `as_of` + `believed_as_of` AND-filters correctly.  
+6. Joint `as_of` + `believed_as_of` AND-filters correctly (host `as_of` for
+   world clock).  
 
 Fixtures use real timestamps. Temporal cases assert **graph correctness**;
 planted vectors remain appropriate for retrieval wiring tests elsewhere.

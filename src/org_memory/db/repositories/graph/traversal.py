@@ -9,7 +9,10 @@ from sqlalchemy import text as sql
 from org_memory.db.orm import Relationship, utcnow
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
-from org_memory.services.temporality.grain import validity_as_of_sql
+from org_memory.services.temporality.grain import (
+    resolve_validity_query_point,
+    validity_as_of_sql,
+)
 
 _REL_VALIDITY_AS_OF = validity_as_of_sql("r")
 
@@ -68,14 +71,14 @@ class GraphTraversalMixin(GraphRepositoryBase):
             if as_of is not None or believed_as_of is not None
             else ["active"]
         )
-        # Current reads: bind now + day grain so validity_as_of_sql matches
-        # query_facts / fact_candidates (grain-expanded valid_from).
-        effective_as_of = as_of
-        effective_grain = as_of_grain or "unknown"
-        if as_of is None and believed_as_of is None:
-            effective_as_of = utcnow()
-            if as_of_grain is None:
-                effective_grain = "day"
+        # Current / belief-only: resolve_validity_query_point binds the world
+        # clock (now, or believed_as_of when as_of is omitted) with day grain.
+        effective_as_of, effective_grain = resolve_validity_query_point(
+            as_of=as_of,
+            believed_as_of=believed_as_of,
+            as_of_grain=as_of_grain,
+            now=utcnow(),
+        )
         # Fetch one extra row so truncated is accurate without a second count query.
         fetch_limit = effective_limit + 1
         rows = list(

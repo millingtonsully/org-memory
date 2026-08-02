@@ -197,16 +197,18 @@ participates; `author` filters authorship. Those are distinct.
 - **System time** — when the service believed it.
 
 `query_facts`, `query_paths`, and `retrieve_context` accept `as_of`,
-`believed_as_of`, and `as_of_grain`. When those axes are set, the hybrid fact
-channel inside `retrieve_context` uses the same windows (active + superseded).
-When both timestamps are omitted, compose derives a temporal plan from the
-query text; when that plan is ambiguous, a spend-gated synthesis assist may
-resolve it (or leave ambiguity / surface vendor errors). Explicit host
-timestamps always win; host `as_of_grain` wins over planner grain. Snapshot
-questions (“what changed between A and B”) produce a plan with `range_end`;
-compose then includes `fact_diffs` (and hosts can call `POST /tools/diff_facts`
-directly). Point `as_of` upper-bounds passage `event_time` (belief upper-bounds
-`updated_at`); range plans also set the matching lower bound when the host
+`believed_as_of`, and `as_of_grain`. Belief-only reads also apply world
+validity at the belief instant (host `as_of` still wins when both are set).
+When those axes are set, the hybrid fact channel inside `retrieve_context`
+uses the same windows (active + superseded). When both timestamps are omitted,
+compose derives a temporal plan from the query text; when that plan is
+ambiguous, a spend-gated synthesis assist may resolve it (or leave ambiguity /
+surface vendor errors). Explicit host timestamps always win; host `as_of_grain`
+wins over planner grain. Snapshot questions (“what changed between A and B”)
+produce a plan with `range_end`; compose then includes `fact_diffs` (and hosts
+can call `POST /tools/diff_facts` directly). Point `as_of` upper-bounds passage
+`event_time` (belief upper-bounds `updated_at`); range plans also set the
+matching lower bound when the host
 omits those filters. Omitting both axes on structured reads means currently
 active facts whose validity contains now.
 Schema `0001` indexes subject/endpoint plus temporal ranges. Storage:

@@ -11,7 +11,10 @@ from org_memory.db.orm import Claim, Document, Entity, Relationship, utcnow
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import Principal
-from org_memory.services.temporality.grain import fact_matches_as_of, normalize_grain
+from org_memory.services.temporality.grain import (
+    fact_matches_as_of,
+    resolve_validity_query_point,
+)
 from org_memory.services.temporality.merge import merge_temporal_fields
 
 
@@ -202,7 +205,7 @@ class GraphWritesMixin(GraphRepositoryBase):
         believed_as_of: datetime | None = None,
         as_of_grain: str | None = None,
     ) -> list[Relationship]:
-        """Edges attached to a node. When as_of is provided, filter by validity window."""
+        """Edges attached to a node; world validity via resolve_validity_query_point."""
         q = self._session.query(Relationship).filter(
             Relationship.workspace_id == self._ws,
             Relationship.status == status,
@@ -218,22 +221,12 @@ class GraphWritesMixin(GraphRepositoryBase):
                 | (Relationship.invalidated_at > believed_as_of),
             )
         rows = q.order_by(Relationship.created_at).all()
-        if as_of is None:
-            if believed_as_of is None:
-                now = utcnow()
-                return [
-                    rel
-                    for rel in rows
-                    if fact_matches_as_of(
-                        valid_from=rel.valid_from,
-                        valid_to=rel.valid_to,
-                        fact_grain=rel.time_grain,
-                        as_of=now,
-                        query_grain="day",
-                    )
-                ]
-            return rows
-        grain = normalize_grain(as_of_grain)
+        point, grain = resolve_validity_query_point(
+            as_of=as_of,
+            believed_as_of=believed_as_of,
+            as_of_grain=as_of_grain,
+            now=utcnow(),
+        )
         return [
             rel
             for rel in rows
@@ -241,7 +234,7 @@ class GraphWritesMixin(GraphRepositoryBase):
                 valid_from=rel.valid_from,
                 valid_to=rel.valid_to,
                 fact_grain=rel.time_grain,
-                as_of=as_of,
+                as_of=point,
                 query_grain=grain,
             )
         ]
@@ -317,22 +310,12 @@ class GraphWritesMixin(GraphRepositoryBase):
                 (Claim.invalidated_at.is_(None)) | (Claim.invalidated_at > believed_as_of),
             )
         rows = q.order_by(Claim.created_at.desc()).all()
-        if as_of is None:
-            if believed_as_of is None:
-                now = utcnow()
-                return [
-                    claim
-                    for claim in rows
-                    if fact_matches_as_of(
-                        valid_from=claim.valid_from,
-                        valid_to=claim.valid_to,
-                        fact_grain=claim.time_grain,
-                        as_of=now,
-                        query_grain="day",
-                    )
-                ]
-            return rows
-        grain = normalize_grain(as_of_grain)
+        point, grain = resolve_validity_query_point(
+            as_of=as_of,
+            believed_as_of=believed_as_of,
+            as_of_grain=as_of_grain,
+            now=utcnow(),
+        )
         return [
             claim
             for claim in rows
@@ -340,7 +323,7 @@ class GraphWritesMixin(GraphRepositoryBase):
                 valid_from=claim.valid_from,
                 valid_to=claim.valid_to,
                 fact_grain=claim.time_grain,
-                as_of=as_of,
+                as_of=point,
                 query_grain=grain,
             )
         ]

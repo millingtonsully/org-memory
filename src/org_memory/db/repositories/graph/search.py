@@ -10,7 +10,10 @@ from org_memory.db.orm import utcnow
 from org_memory.db.repositories._common import _document_visibility_filters_sql
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
-from org_memory.services.temporality.grain import validity_as_of_sql
+from org_memory.services.temporality.grain import (
+    resolve_validity_query_point,
+    validity_as_of_sql,
+)
 
 # Shared temporal predicates for claim and relationship legs.
 _VALIDITY_AS_OF = validity_as_of_sql("c")
@@ -58,6 +61,8 @@ class GraphSearchMixin(GraphRepositoryBase):
         When ``as_of`` / ``believed_as_of`` are unset, only currently active and
         currently valid facts participate (hybrid "true now"), using the same
         grain-expanded validity predicate as ``query_facts`` / ``paths_from``.
+        Belief-only binds world validity at ``believed_as_of`` (day grain unless
+        the host sets ``as_of_grain``); host ``as_of`` wins when both are set.
         When either axis is set, active and superseded rows whose windows contain
         the point are eligible. ``as_of_grain`` selects month/quarter/year bucket
         overlap when the query is coarse.
@@ -66,14 +71,12 @@ class GraphSearchMixin(GraphRepositoryBase):
         statuses = ["active", "superseded"] if temporal else ["active"]
         claim_temporal = f"{_VALIDITY_AS_OF} AND {_BELIEF_AS_OF}"
         rel_temporal = f"{_REL_VALIDITY_AS_OF} AND {_REL_BELIEF_AS_OF}"
-        # Current reads: bind now + day grain so month/year facts whose stored
-        # valid_from is mid-bucket still match (parity with paths_from).
-        effective_as_of = as_of
-        effective_grain = as_of_grain or "unknown"
-        if as_of is None and believed_as_of is None:
-            effective_as_of = utcnow()
-            if as_of_grain is None:
-                effective_grain = "day"
+        effective_as_of, effective_grain = resolve_validity_query_point(
+            as_of=as_of,
+            believed_as_of=believed_as_of,
+            as_of_grain=as_of_grain,
+            now=utcnow(),
+        )
 
         rows = self._session.execute(
             sql(f"""

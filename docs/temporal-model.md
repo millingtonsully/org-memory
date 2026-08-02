@@ -48,10 +48,12 @@ point containment after fact-side expansion.
 - `as_of` filters on the validity window. Superseded facts keep their original
   validity interval, so as-of reads include both `active` and `superseded`
   rows whose window contains the point.
-- `believed_as_of` filters on the belief window, reconstructing what the
-  service would have returned at that moment.
+- `believed_as_of` filters on the belief window. When `as_of` is omitted, the
+  same instant is also used as the world-time point (day grain unless the host
+  sets `as_of_grain`), so the response matches what would have been current and
+  believed then. Host `as_of` still wins for the world clock when both are set.
 - Omitting both returns currently active facts whose validity window contains
-  now (half-open: `valid_from <= now < valid_to`), matching hybrid
+  now (grain-expanded; default query grain `day`), matching hybrid
   `fact_candidates`.
 
 `POST /tools/diff_facts` compares two snapshots of the same subject on one

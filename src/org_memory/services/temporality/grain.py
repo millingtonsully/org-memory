@@ -87,6 +87,38 @@ def fact_matches_as_of(
     return valid_to is None or valid_to > start
 
 
+def resolve_validity_query_point(
+    *,
+    as_of: datetime | None,
+    believed_as_of: datetime | None,
+    as_of_grain: str | None,
+    now: datetime,
+) -> tuple[datetime, TimeGrain]:
+    """World-time point + grain used for validity matching.
+
+    - Host ``as_of`` wins for the world clock (joint belief+world still uses it).
+    - Belief-only (``believed_as_of`` without ``as_of``) uses the belief instant as
+      the world point so the read reconstructs what would have been current then.
+    - Both omitted → ``now`` with day grain (unless host supplied ``as_of_grain``).
+    """
+    if as_of is not None:
+        point = as_of if as_of.tzinfo else as_of.replace(tzinfo=UTC)
+        return point, normalize_grain(as_of_grain)
+    if believed_as_of is not None:
+        point = (
+            believed_as_of
+            if believed_as_of.tzinfo
+            else believed_as_of.replace(tzinfo=UTC)
+        )
+        grain: TimeGrain = (
+            "day" if as_of_grain is None else normalize_grain(as_of_grain)
+        )
+        return point, grain
+    clock = now if now.tzinfo else now.replace(tzinfo=UTC)
+    grain = "day" if as_of_grain is None else normalize_grain(as_of_grain)
+    return clock, grain
+
+
 def validity_as_of_sql(alias: str) -> str:
     """SQL predicate using binds ``:as_of`` and ``:as_of_grain``.
 
