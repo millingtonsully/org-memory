@@ -5,7 +5,11 @@ Claim lifecycle lives in `claims.py` (`GraphClaimsMixin`).
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
+from typing import Any
+
+from sqlalchemy import text as sql
 
 from org_memory.db.orm import Claim, Document, Entity, Relationship, utcnow
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
@@ -16,6 +20,34 @@ from org_memory.services.temporality.grain import (
     resolve_validity_query_point,
 )
 from org_memory.services.temporality.merge import merge_temporal_fields
+
+# All-visible evidence: every cited doc must be in visible_docs (same invariant as
+# claims/paths). Applied in SQL so private entities never consume browse/search limits.
+_ENTITY_VISIBLE_DOCS_CTE = """
+    visible_docs AS (
+        SELECT d.doc_id
+        FROM documents d
+        WHERE d.workspace_id = :workspace_id
+          AND d.deleted = false
+          AND (
+              d.org_visible = true
+              OR d.allowed_principals && CAST(:viewer_principals AS text[])
+          )
+    )
+"""
+_ENTITY_ALL_VISIBLE_SQL = """
+    cardinality(e.evidence_doc_ids) > 0
+    AND cardinality(evidence.doc_ids) = (
+        SELECT count(DISTINCT x) FROM unnest(e.evidence_doc_ids) AS x
+    )
+"""
+_ENTITY_EVIDENCE_LATERAL = """
+    CROSS JOIN LATERAL (
+        SELECT array_agg(v.doc_id) AS doc_ids
+        FROM visible_docs v
+        WHERE v.doc_id = ANY(e.evidence_doc_ids)
+    ) evidence
+"""
 
 
 class GraphWritesMixin(GraphRepositoryBase):
@@ -89,19 +121,37 @@ class GraphWritesMixin(GraphRepositoryBase):
 
         All-visible (not any-visible): mixed private/public evidence must not
         surface entity name/description/attributes to a viewer who cannot see
-        every supporting document. Empty evidence never surfaces.
+        every supporting document. Empty evidence never surfaces. ACL is applied
+        in SQL so private rows never consume ``limit``.
         """
-        visible: list[tuple[Entity, list[str]]] = []
-        for entity in self.search_entities(name, limit=limit * 3, entity_type=entity_type):
-            evidence = list(entity.evidence_doc_ids or [])
-            if not evidence:
-                continue
-            doc_ids = self.visible_evidence_doc_ids(evidence, principal)
-            if len(doc_ids) == len(set(evidence)):
-                visible.append((entity, doc_ids))
-            if len(visible) >= limit:
-                break
-        return visible
+        type_filter = ""
+        params: dict = {
+            "workspace_id": self._ws,
+            "viewer_principals": principal.all_principals(),
+            "name_pattern": f"%{name}%",
+            "limit": max(1, int(limit)),
+        }
+        if entity_type:
+            type_filter = "AND e.entity_type = :entity_type"
+            params["entity_type"] = entity_type.strip().lower()
+        rows = self._session.execute(
+            sql(f"""
+                WITH {_ENTITY_VISIBLE_DOCS_CTE}
+                SELECT e.entity_id, evidence.doc_ids AS evidence_doc_ids
+                FROM entities e
+                {_ENTITY_EVIDENCE_LATERAL}
+                WHERE e.workspace_id = :workspace_id
+                  AND e.name ILIKE :name_pattern
+                  {type_filter}
+                  AND {_ENTITY_ALL_VISIBLE_SQL}
+                ORDER BY e.name ASC
+                LIMIT :limit
+            """),
+            params,
+        ).mappings().all()
+        return self._hydrate_entities_with_evidence(
+            [dict(row) for row in rows]
+        )
 
     def list_entities_for_viewer(
         self,
@@ -110,29 +160,54 @@ class GraphWritesMixin(GraphRepositoryBase):
         entity_type: str,
         limit: int = 50,
     ) -> list[tuple[Entity, list[str]]]:
-        """Browse visible entities of one type (bounded; ordered by name)."""
-        rows = (
-            self._session.query(Entity)
-            .filter(
-                Entity.workspace_id == self._ws,
-                Entity.entity_type == entity_type.strip().lower(),
-            )
-            .order_by(Entity.name.asc())
-            .limit(max(limit * 5, limit))
-            .all()
+        """Browse visible entities of one type (bounded; ordered by name).
+
+        All-visible evidence ACL is enforced in SQL so private entities never
+        consume the browse limit.
+        """
+        rows = self._session.execute(
+            sql(f"""
+                WITH {_ENTITY_VISIBLE_DOCS_CTE}
+                SELECT e.entity_id, evidence.doc_ids AS evidence_doc_ids
+                FROM entities e
+                {_ENTITY_EVIDENCE_LATERAL}
+                WHERE e.workspace_id = :workspace_id
+                  AND e.entity_type = :entity_type
+                  AND {_ENTITY_ALL_VISIBLE_SQL}
+                ORDER BY e.name ASC
+                LIMIT :limit
+            """),
+            {
+                "workspace_id": self._ws,
+                "viewer_principals": principal.all_principals(),
+                "entity_type": entity_type.strip().lower(),
+                "limit": max(1, int(limit)),
+            },
+        ).mappings().all()
+        return self._hydrate_entities_with_evidence(
+            [dict(row) for row in rows]
         )
-        visible: list[tuple[Entity, list[str]]] = []
-        for entity in rows:
-            evidence = list(entity.evidence_doc_ids or [])
-            if not evidence:
+
+    def _hydrate_entities_with_evidence(
+        self, rows: Sequence[Mapping[str, Any]]
+    ) -> list[tuple[Entity, list[str]]]:
+        if not rows:
+            return []
+        ids = [row["entity_id"] for row in rows]
+        by_id = {
+            entity.entity_id: entity
+            for entity in self._session.query(Entity)
+            .filter(Entity.workspace_id == self._ws, Entity.entity_id.in_(ids))
+            .all()
+        }
+        out: list[tuple[Entity, list[str]]] = []
+        for row in rows:
+            entity = by_id.get(row["entity_id"])
+            if entity is None:
                 continue
-            doc_ids = self.visible_evidence_doc_ids(evidence, principal)
-            if len(doc_ids) != len(set(evidence)):
-                continue
-            visible.append((entity, doc_ids))
-            if len(visible) >= limit:
-                break
-        return visible
+            evidence = list(row["evidence_doc_ids"] or [])
+            out.append((entity, evidence))
+        return out
 
     def get_entity_for_viewer(self, entity_id: str, principal: Principal) -> tuple[Entity, list[str]] | None:
         """Return entity only when every evidence document is viewer-visible."""

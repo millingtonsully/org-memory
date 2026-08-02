@@ -162,7 +162,9 @@ fill `fact_diffs`. Ledger: `docs/temporal-model.md`. Pipeline:
 
 **Two ACL rules.** Passages use **any-visible** (see the doc → see its chunks).
 Claims/relationships/entities use **all-visible** (every evidence doc must be
-visible). Partial evidence omits the fact from that viewer's graph reads.
+visible). Entity browse/search applies that filter in SQL so private entities
+never consume result limits. Partial evidence omits the fact from that
+viewer's graph reads.
 
 **Closed taxonomy registry.** Extraction and promotions bind to registry
 predicates and types on the write path.
