@@ -57,7 +57,8 @@ POST /tools/retrieve_context
 
 1. Postgres first, then object store. If the blob write fails, the DB
    transaction rolls back so every committed document row has a matching
-   archived envelope.
+   archived envelope. If the blob write succeeds and the DB transaction later
+   rolls back, ingest best-effort deletes that blob.
 2. Deletes are **tombstones**: the document id stays; search stops returning
    it; evidence lists on graph facts drop that doc; facts with no remaining
    evidence are retracted.

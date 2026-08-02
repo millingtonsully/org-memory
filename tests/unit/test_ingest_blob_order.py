@@ -69,8 +69,12 @@ def test_put_runs_after_db_and_fails_closed(ingest_settings) -> None:
 
 
 def test_orphan_blob_deleted_when_post_put_step_fails(ingest_settings) -> None:
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
     store = RecordingStore()
-    svc = IngestService(session=MagicMock(), object_store=store, entity_resolution=MagicMock())
+    session = sessionmaker(bind=create_engine("sqlite:///:memory:"))()
+    svc = IngestService(session=session, object_store=store, entity_resolution=MagicMock())
     svc._apply_envelope = MagicMock(return_value=IngestResult(doc_id="test:1", status="accepted"))  # type: ignore[method-assign]
     svc._on_blob_archived = MagicMock(side_effect=RuntimeError("commit barrier failed"))  # type: ignore[method-assign]
     envelope = ChangeEnvelope(
@@ -88,3 +92,36 @@ def test_orphan_blob_deleted_when_post_put_step_fails(ingest_settings) -> None:
         svc.ingest_envelope(envelope, b'{"ok":true}')
     assert len(store.puts) == 1
     assert store.deletes == store.puts
+
+
+def test_blob_deleted_when_session_rolls_back_after_successful_put(ingest_settings) -> None:
+    """Put can succeed and ingest return; caller rollback must still clean the blob."""
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import sessionmaker
+
+    from org_memory.services.ingest import track_blob_for_rollback
+
+    store = RecordingStore()
+    engine = create_engine("sqlite:///:memory:")
+    session = sessionmaker(bind=engine)()
+    session.execute(text("SELECT 1"))
+    blob_key = "ws/envelopes/test/1/20260701T000000Z-abcd.json"
+    track_blob_for_rollback(session, store, blob_key)
+    session.rollback()
+    assert store.deletes == [blob_key]
+
+
+def test_blob_kept_when_session_commits_after_put(ingest_settings) -> None:
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import sessionmaker
+
+    from org_memory.services.ingest import track_blob_for_rollback
+
+    store = RecordingStore()
+    engine = create_engine("sqlite:///:memory:")
+    session = sessionmaker(bind=engine)()
+    blob_key = "ws/envelopes/test/1/20260701T000000Z-efgh.json"
+    track_blob_for_rollback(session, store, blob_key)
+    session.execute(text("SELECT 1"))
+    session.commit()
+    assert store.deletes == []

@@ -7,8 +7,10 @@ versioned per event. Collaboration rebuilds are enqueued with queue debounce.
 
 Blob order: apply DB → on accepted only, object_store.put. If put fails, the
 request transaction rolls back (no rows pointing at a missing blob). If put
-succeeds and a later step fails before commit, best-effort delete the blob.
-Stale envelopes return skipped_stale without archiving.
+succeeds and a later step fails before commit—or the caller transaction rolls
+back—best-effort delete the blob (inline on ingest errors; after_rollback for
+session abort after a successful return). Stale envelopes return skipped_stale
+without archiving.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import structlog
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from org_memory.core.settings import get_settings
@@ -44,6 +47,9 @@ logger = structlog.get_logger(__name__)
 
 IngestStatus = Literal["accepted", "skipped_stale"]
 
+_ORPHAN_BLOBS = "org_memory_orphan_blobs"
+_BLOB_CLEANUP_READY = "org_memory_blob_cleanup_ready"
+
 
 @dataclass(frozen=True)
 class IngestResult:
@@ -63,6 +69,49 @@ def chunk_content_hash(text: str) -> str:
     links stays out: changing those must never force a re-embed.
     """
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def track_blob_for_rollback(
+    session: Session, object_store: ObjectStore, blob_key: str
+) -> None:
+    """Delete ``blob_key`` on session rollback if the transaction never commits.
+
+    Registers after_commit / after_rollback listeners once per session. Commit
+    clears the pending set; rollback best-effort deletes each tracked key.
+    """
+    orphans: set[str] = session.info.setdefault(_ORPHAN_BLOBS, set())
+    orphans.add(blob_key)
+    if session.info.get(_BLOB_CLEANUP_READY):
+        return
+    session.info[_BLOB_CLEANUP_READY] = True
+
+    def _on_commit(sess: Session) -> None:
+        pending = sess.info.get(_ORPHAN_BLOBS)
+        if pending is not None:
+            pending.clear()
+
+    def _on_rollback(sess: Session) -> None:
+        pending = set(sess.info.get(_ORPHAN_BLOBS) or ())
+        sess.info[_ORPHAN_BLOBS] = set()
+        for key in pending:
+            try:
+                object_store.delete(key)
+                logger.info("ingest.blob_rollback_cleanup", blob_key=key)
+            except Exception as cleanup_exc:
+                logger.error(
+                    "ingest.blob_orphan",
+                    blob_key=key,
+                    error=str(cleanup_exc),
+                )
+
+    event.listen(session, "after_commit", _on_commit)
+    event.listen(session, "after_rollback", _on_rollback)
+
+
+def _discard_tracked_blob(session: Session, blob_key: str) -> None:
+    orphans = session.info.get(_ORPHAN_BLOBS)
+    if orphans is not None:
+        orphans.discard(blob_key)
 
 
 class IngestService:
@@ -100,10 +149,12 @@ class IngestService:
         try:
             self._objects.put(blob_key, raw_payload, "application/json")
             archived = True
+            track_blob_for_rollback(self._session, self._objects, blob_key)
             self._on_blob_archived(blob_key)
             return result
         except Exception:
             if archived:
+                _discard_tracked_blob(self._session, blob_key)
                 try:
                     self._objects.delete(blob_key)
                 except Exception as cleanup_exc:
