@@ -43,7 +43,8 @@ _JOB_TYPES = [job_type.value for job_type in JobType]
 # A handler receives the session, the claimed job, and its repository (for
 # heartbeats). Keying dispatch off JobType means adding a job type is a single
 # registry entry, and an unregistered type fails loudly instead of silently.
-JobHandler = Callable[[Session, Job, JobRepository], None]
+# Push webhook may return True to request a follow-up enqueue after mark_done.
+JobHandler = Callable[[Session, Job, JobRepository], bool | None]
 
 
 class Worker:
