@@ -347,12 +347,14 @@ planted vectors remain appropriate for retrieval wiring tests elsewhere.
 | [`src/org_memory/services/retrieval.py`](../src/org_memory/services/retrieval.py) | Hybrid search; forwards temporal kwargs to fact candidates |
 | [`src/org_memory/api/routes_retrieve.py`](../src/org_memory/api/routes_retrieve.py) | HTTP for compose |
 | [`src/org_memory/api/routes_facts.py`](../src/org_memory/api/routes_facts.py) | HTTP for facts / paths / `diff_facts` |
+| [`src/org_memory/api/routes_graph.py`](../src/org_memory/api/routes_graph.py) | Person/entity cards; same temporal params/status rules as `query_facts` |
 
 ### Tests and eval
 
 | Path | Role |
 | ---- | ---- |
 | [`tests/postgres/test_query_facts_paths.py`](../tests/postgres/test_query_facts_paths.py) | Temporal filters, ACL, supersession-friendly fixtures |
+| [`tests/postgres/test_graph_card_temporal.py`](../tests/postgres/test_graph_card_temporal.py) | Graph card `as_of` / belief / grain parity with `query_facts` |
 | [`tests/postgres/test_diff_facts_pg.py`](../tests/postgres/test_diff_facts_pg.py) | Snapshot diff HTTP contract |
 | [`tests/postgres/test_retrieve_context.py`](../tests/postgres/test_retrieve_context.py) | Compose + ACL |
 | [`evals/retrieval/gold_set.json`](../evals/retrieval/gold_set.json) | Retrieval gold set with temporal cases (current, world host+NL, belief host+NL, grain, joint, snapshot diff, multi) |

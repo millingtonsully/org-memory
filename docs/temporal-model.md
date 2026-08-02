@@ -62,6 +62,11 @@ Subject claim and edge viewer reads (`claims_for_viewer`,
 all-visible evidence ACL filters in SQL as hybrid `fact_candidates` and
 `paths_from`, so private evidence never enters the viewer result set.
 
+Graph person and entity cards (`GET /v1/graph/persons/{canonical_id}`,
+`GET /v1/graph/entities/{entity_id}`) accept the same temporal query
+parameters and status rules as `query_facts`, and return `time_grain` on
+claims and relationships.
+
 `POST /tools/diff_facts` compares two snapshots of the same subject on one
 axis: a world pair (`as_of_from` / `as_of_to`) or a belief pair
 (`believed_as_of_from` / `believed_as_of_to`). Optional `as_of_grain` applies to

@@ -202,8 +202,9 @@ participates; `author` filters authorship. Those are distinct.
 - **World time** — when the fact held in reality.
 - **System time** — when the service believed it.
 
-`query_facts`, `query_paths`, and `retrieve_context` accept `as_of`,
-`believed_as_of`, and `as_of_grain`. Belief-only reads also apply world
+`query_facts`, `query_paths`, `retrieve_context`, and graph person/entity
+cards (`GET /v1/graph/persons/{id}`, `GET /v1/graph/entities/{id}`) accept
+`as_of`, `believed_as_of`, and `as_of_grain`. Belief-only reads also apply world
 validity at the belief instant (host `as_of` still wins when both are set).
 When those axes are set, the hybrid fact channel inside `retrieve_context`
 uses the same windows (active + superseded). Subject claim and edge viewer
@@ -309,7 +310,7 @@ schemas), `config/taxonomy_registry/` (live ontology instances),
 | ---- | ------ |
 | Ingress | `POST /ingress/envelope` |
 | Agent tools | `retrieve_context`, search, facts, paths, worldbuilder, procedural |
-| Graph cards | `/v1/graph/persons/...`, `/v1/graph/entities/...` |
+| Graph cards | `/v1/graph/persons/...`, `/v1/graph/entities/...` (`as_of` / `believed_as_of` / `as_of_grain`) |
 | Admin | jobs, spend, legal holds, retention, connectors |
 | Proposals / promotions | `/v1/taxonomy-proposals`, `/v1/promotions` |
 
