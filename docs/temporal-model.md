@@ -122,6 +122,11 @@ without scanning the full table:
 
 - B-tree: `ix_claims_subject_status`, `ix_relationships_from_status`
   (workspace + endpoint + status).
+- Unique live object: `uq_claims_live_object` on
+  `(workspace_id, subject_type, subject_id, predicate, object_text)` where
+  status is `proposed`, `active`, or `retracted` (superseded rows remain for
+  audit). `add_claim` collapses same-object live rows and merges on unique
+  races.
 - GiST ranges (requires `btree_gist`): `ix_claims_subject_valid_range`,
   `ix_claims_subject_belief_range`, and the matching
   `ix_relationships_from_*_range` indexes on

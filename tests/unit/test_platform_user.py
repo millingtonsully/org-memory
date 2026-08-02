@@ -82,7 +82,7 @@ def test_promote_autofills_host_entity_id_from_platform_user(monkeypatch) -> Non
     service._graph.latest_evidence_time.return_value = datetime(2026, 3, 15, tzinfo=UTC)
     service._graph.add_claim.return_value = claim
     service._graph.active_claims_for_slot_locked.return_value = [claim]
-    service._graph.active_object_texts.return_value = ["VP"]
+    service._graph.active_claim_count.return_value = 1
     service._proposals = MagicMock()
     service._proposals.upsert_pending.return_value = proposal
     service._jobs = MagicMock()

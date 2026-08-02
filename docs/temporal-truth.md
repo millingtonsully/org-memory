@@ -217,9 +217,11 @@ registry marks the key mutually exclusive:
 4. Apply the same pattern to exclusive relationships.
 
 Extraction apply, structured field writers, promotions, and glossary seed call
-`eager_close_*` for registry-exclusive slots. `resolve_claim_conflict` /
-`resolve_relationship_conflict` remain the async safety net for duplicate
-collapse, races, registry-unknown exclusivity, and residual multi-value slots.
+`eager_close_*` for registry-exclusive slots (including same-object duplicate
+collapse before exclusive ranking). `resolve_claim_conflict` /
+`resolve_relationship_conflict` remain the async safety net for residual
+multi-value slots, races, and registry-unknown exclusivity; conflict enqueue
+triggers when more than one **active claim row** remains in the slot.
 
 ### 4.5 Temporal intent planner
 

@@ -200,6 +200,8 @@ class Claim(Base):
 
     Temporal indexes live in alembic 0001: subject+status B-tree, plus GiST
     ranges on the validity and belief windows for as_of / believed_as_of.
+    Live uniqueness: ``uq_claims_live_object`` on
+    (workspace, subject, predicate, object_text) for proposed/active/retracted.
     """
 
     __tablename__ = "claims"

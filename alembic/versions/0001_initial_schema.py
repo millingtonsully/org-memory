@@ -336,6 +336,12 @@ def upgrade() -> None:
             to_tsvector('english', coalesce(predicate, '') || ' ' || coalesce(object_text, ''))
         ) WHERE status = 'active'
     """)
+    # One live row per (subject, predicate, object); superseded rows stay for audit.
+    op.execute("""
+        CREATE UNIQUE INDEX uq_claims_live_object
+        ON claims (workspace_id, subject_type, subject_id, predicate, object_text)
+        WHERE status IN ('proposed', 'active', 'retracted')
+    """)
 
     op.execute("""
         CREATE TABLE person_merge_decisions (

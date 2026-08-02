@@ -54,7 +54,7 @@ def handle_extract_graph(
     graph = GraphRepository(session)
     jobs = JobRepository(session)
     for subject_type, subject_id, predicate in service.active_claim_slots:
-        if len(graph.active_object_texts(subject_type, subject_id, predicate)) > 1:
+        if graph.active_claim_count(subject_type, subject_id, predicate) > 1:
             jobs.enqueue(
                 JobType.resolve_claim_conflict,
                 {

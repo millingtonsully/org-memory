@@ -26,7 +26,7 @@ def test_enqueue_helper_skips_multi_valued_predicate() -> None:
     )
     assert eager_close_claim_slot_and_enqueue_conflict(graph, jobs, claim) == 0
     jobs.enqueue.assert_not_called()
-    graph.active_object_texts.assert_not_called()
+    graph.active_claim_count.assert_not_called()
 
 
 def test_enqueue_helper_enqueues_when_exclusive_rivals_remain() -> None:
@@ -47,7 +47,7 @@ def test_enqueue_helper_enqueues_when_exclusive_rivals_remain() -> None:
     )
     # Eager close sees only the winner (race already committed elsewhere).
     graph.active_claims_for_slot_locked.return_value = [claim]
-    graph.active_object_texts.return_value = ["Manager", "Engineer"]
+    graph.active_claim_count.return_value = 2
 
     assert eager_close_claim_slot_and_enqueue_conflict(graph, jobs, claim) == 0
     jobs.enqueue.assert_called_once_with(
@@ -58,6 +58,29 @@ def test_enqueue_helper_enqueues_when_exclusive_rivals_remain() -> None:
             "predicate": "title",
         },
     )
+
+
+def test_enqueue_helper_enqueues_same_object_duplicates() -> None:
+    graph = MagicMock()
+    jobs = MagicMock()
+    claim = SimpleNamespace(
+        claim_id="c-new",
+        status=FactStatus.active.value,
+        predicate="title",
+        subject_type="person",
+        subject_id="p1",
+        object_text="Manager",
+        confidence=0.9,
+        evidence_doc_ids=["d2"],
+        updated_at=datetime(2026, 6, 1, tzinfo=UTC),
+        created_by="structured_field:ground_truth",
+        valid_from=datetime(2026, 6, 1, tzinfo=UTC),
+    )
+    graph.active_claims_for_slot_locked.return_value = [claim]
+    graph.active_claim_count.return_value = 2
+
+    assert eager_close_claim_slot_and_enqueue_conflict(graph, jobs, claim) == 0
+    jobs.enqueue.assert_called_once()
 
 
 def test_enqueue_helper_skips_when_single_active_value() -> None:
@@ -77,7 +100,7 @@ def test_enqueue_helper_skips_when_single_active_value() -> None:
         valid_from=datetime(2026, 6, 1, tzinfo=UTC),
     )
     graph.active_claims_for_slot_locked.return_value = [claim]
-    graph.active_object_texts.return_value = ["Manager"]
+    graph.active_claim_count.return_value = 1
 
     assert eager_close_claim_slot_and_enqueue_conflict(graph, jobs, claim) == 0
     jobs.enqueue.assert_not_called()

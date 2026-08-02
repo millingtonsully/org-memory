@@ -30,9 +30,10 @@ def eager_close_claim_slot_and_enqueue_conflict(
     superseded = eager_close_claim_slot(graph, winner)
     if get_taxonomy_registry().predicate_mutually_exclusive(winner.predicate) is not True:
         return superseded
-    if len(graph.active_object_texts(
+    # Row count (not distinct objects) so same-object twins still enqueue.
+    if graph.active_claim_count(
         winner.subject_type, winner.subject_id, winner.predicate
-    )) > 1:
+    ) > 1:
         jobs.enqueue(
             JobType.resolve_claim_conflict,
             {
@@ -97,6 +98,30 @@ def eager_close_claim_slot(graph: GraphRepository, winner: Claim) -> int:
     if len(claims) < 2:
         return 0
 
+    # Same-object active twins collapse first (merge evidence, supersede extras).
+    by_object: dict[str, list[Claim]] = {}
+    for claim in claims:
+        by_object.setdefault(claim.object_text, []).append(claim)
+    collapsed: list[Claim] = []
+    duplicate_closed = 0
+    for group in by_object.values():
+        if len(group) == 1:
+            collapsed.append(group[0])
+            continue
+        keeper = graph.collapse_live_claims_for_object(group)
+        collapsed.append(keeper)
+        duplicate_closed += len(group) - 1
+
+    if len(collapsed) < 2:
+        if duplicate_closed:
+            logger.info(
+                "temporality.eager_claim_duplicate_collapse",
+                subject=f"{winner.subject_type}:{winner.subject_id}",
+                predicate=winner.predicate,
+                superseded=duplicate_closed,
+            )
+        return duplicate_closed
+
     candidates = [
         ConflictCandidate(
             claim_id=claim.claim_id,
@@ -107,15 +132,13 @@ def eager_close_claim_slot(graph: GraphRepository, winner: Claim) -> int:
             created_by=claim.created_by or "",
             evidence_count=len(claim.evidence_doc_ids or []),
         )
-        for claim in claims
+        for claim in collapsed
     ]
     ranked = rank_conflict_candidates(candidates)
     keep_id = ranked[0].claim_id
-    by_id = {claim.claim_id: claim for claim in claims}
-    superseded = 0
+    by_id = {claim.claim_id: claim for claim in collapsed}
+    superseded = duplicate_closed
     for candidate in ranked[1:]:
-        if candidate.object_text == ranked[0].object_text:
-            continue
         loser = by_id[candidate.claim_id]
         graph.supersede_claim(
             loser,

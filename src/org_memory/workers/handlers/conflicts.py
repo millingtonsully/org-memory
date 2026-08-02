@@ -57,25 +57,9 @@ def handle_resolve_claim_conflict(session: Session, payload: dict, synthesizer, 
         return  # already resolved by an earlier run or re-extraction
 
     # Collapse duplicate same-object active rows into one winner first.
-    for _object_text, group in by_object.items():
-        if len(group) < 2:
-            continue
-        ranked_dupes = rank_conflict_candidates([_candidate(graph, claim) for claim in group])
-        keep = ranked_dupes[0]
-        keep_row = next(c for c in group if c.claim_id == keep.claim_id)
-        for rival in group:
-            if rival.claim_id == keep.claim_id:
-                continue
-            # Merge evidence into the keeper, then supersede the duplicate row.
-            merged = set(keep_row.evidence_doc_ids or []) | set(rival.evidence_doc_ids or [])
-            keep_row.evidence_doc_ids = sorted(merged)
-            quotes = {
-                (str(item.get("doc_id", "")), str(item.get("quote", ""))): item
-                for item in [*(keep_row.evidence_quotes or []), *(rival.evidence_quotes or [])]
-            }
-            keep_row.evidence_quotes = list(quotes.values())
-            keep_row.confidence = max(keep_row.confidence, rival.confidence)
-            graph.supersede_claim(rival, keep.claim_id, "automatic:duplicate_collapse")
+    for group in by_object.values():
+        if len(group) >= 2:
+            graph.collapse_live_claims_for_object(group)
 
     claims = graph.active_claims_for_slot_locked(subject_type, subject_id, predicate)
     by_object = {}
