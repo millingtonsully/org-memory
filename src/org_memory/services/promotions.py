@@ -12,7 +12,9 @@ from org_memory.domain.fact_lifecycle import FactStatus
 from org_memory.domain.jobs import JobType
 from org_memory.domain.models import Principal
 from org_memory.domain.proposals import precedence_class_name, precedence_rank
-from org_memory.services.temporality.eager_close import eager_close_claim_slot
+from org_memory.services.temporality.eager_close import (
+    eager_close_claim_slot_and_enqueue_conflict,
+)
 from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
@@ -130,18 +132,7 @@ class PromotionService:
             )
         )
         if pred_def.mutually_exclusive:
-            eager_close_claim_slot(self._graph, claim)
-            if len(self._graph.active_object_texts(
-                claim.subject_type, claim.subject_id, claim.predicate
-            )) > 1:
-                self._jobs.enqueue(
-                    JobType.resolve_claim_conflict,
-                    {
-                        "subject_type": claim.subject_type,
-                        "subject_id": claim.subject_id,
-                        "predicate": claim.predicate,
-                    },
-                )
+            eager_close_claim_slot_and_enqueue_conflict(self._graph, self._jobs, claim)
 
         rank = precedence_rank(
             created_by=created_by,

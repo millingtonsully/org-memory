@@ -5,15 +5,43 @@ from __future__ import annotations
 import structlog
 
 from org_memory.db.orm import Claim, Relationship
-from org_memory.db.repositories import GraphRepository
+from org_memory.db.repositories import GraphRepository, JobRepository
 from org_memory.domain.fact_lifecycle import (
     ConflictCandidate,
     FactStatus,
     rank_conflict_candidates,
 )
+from org_memory.domain.jobs import JobType
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
 logger = structlog.get_logger(__name__)
+
+
+def eager_close_claim_slot_and_enqueue_conflict(
+    graph: GraphRepository,
+    jobs: JobRepository,
+    winner: Claim,
+) -> int:
+    """Eager-close a registry-exclusive claim slot; enqueue conflict if rivals remain.
+
+    Shared by structured writers and promotions so concurrent races still get the
+    async safety net after the in-transaction close.
+    """
+    superseded = eager_close_claim_slot(graph, winner)
+    if get_taxonomy_registry().predicate_mutually_exclusive(winner.predicate) is not True:
+        return superseded
+    if len(graph.active_object_texts(
+        winner.subject_type, winner.subject_id, winner.predicate
+    )) > 1:
+        jobs.enqueue(
+            JobType.resolve_claim_conflict,
+            {
+                "subject_type": winner.subject_type,
+                "subject_id": winner.subject_id,
+                "predicate": winner.predicate,
+            },
+        )
+    return superseded
 
 
 def eager_close_claim_slot(graph: GraphRepository, winner: Claim) -> int:

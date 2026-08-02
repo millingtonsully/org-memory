@@ -13,10 +13,12 @@ import structlog
 from sqlalchemy.orm import Session
 
 from org_memory.db.orm import Claim, Document, utcnow
-from org_memory.db.repositories import GraphRepository, PersonRepository
+from org_memory.db.repositories import GraphRepository, JobRepository, PersonRepository
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import StructuredField
-from org_memory.services.temporality.eager_close import eager_close_claim_slot
+from org_memory.services.temporality.eager_close import (
+    eager_close_claim_slot_and_enqueue_conflict,
+)
 from org_memory.services.temporality.grounding import ground_fact_times
 from org_memory.taxonomy_registry import TaxonomyRegistry, get_taxonomy_registry
 
@@ -64,6 +66,7 @@ class RegistryBackedStructuredFieldWriter:
             return []
 
         graph = GraphRepository(session)
+        jobs = JobRepository(session)
         written: list[str] = []
         for field in fields:
             pred = registry.ground_truth_predicate_for_structured_key(field.key)
@@ -125,7 +128,7 @@ class RegistryBackedStructuredFieldWriter:
             )
             written.append(claim.claim_id)
             if pred.mutually_exclusive:
-                eager_close_claim_slot(graph, claim)
+                eager_close_claim_slot_and_enqueue_conflict(graph, jobs, claim)
         return written
 
 
