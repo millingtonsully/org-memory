@@ -27,6 +27,7 @@ from org_memory.services.identity_merge import (
     has_sufficient_corroboration,
     identity_fingerprint,
     merge_people,
+    reconcile_exclusive_slots_after_person_merge,
 )
 from org_memory.workers.handlers._shared import assert_spend_under_hard_limit, parse_llm_json
 
@@ -154,6 +155,7 @@ def handle_adjudicate_persons(session: Session, payload: dict, synthesizer, hear
             key=lambda person: (person.created_at, person.canonical_id),
         )
         merge_people(session, keep, merge)
+        reconcile_exclusive_slots_after_person_merge(session, keep)
         status = "auto_merged"
     else:
         status = verdict_kind

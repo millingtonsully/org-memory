@@ -44,6 +44,42 @@ def eager_close_claim_slot_and_enqueue_conflict(
     return superseded
 
 
+def eager_close_relationship_slot_and_enqueue_conflict(
+    graph: GraphRepository,
+    jobs: JobRepository,
+    winner: Relationship,
+) -> int:
+    """Eager-close a registry-exclusive relationship slot; enqueue if rivals remain."""
+    superseded = eager_close_relationship_slot(graph, winner)
+    if (
+        get_taxonomy_registry().relationship_mutually_exclusive(winner.relationship_type)
+        is not True
+    ):
+        return superseded
+    distinct_targets = (
+        graph._session.query(Relationship.to_id)
+        .filter(
+            Relationship.workspace_id == graph._ws,
+            Relationship.from_type == winner.from_type,
+            Relationship.from_id == winner.from_id,
+            Relationship.relationship_type == winner.relationship_type,
+            Relationship.status == FactStatus.active.value,
+        )
+        .distinct()
+        .count()
+    )
+    if distinct_targets > 1:
+        jobs.enqueue(
+            JobType.resolve_relationship_conflict,
+            {
+                "from_type": winner.from_type,
+                "from_id": winner.from_id,
+                "relationship_type": winner.relationship_type,
+            },
+        )
+    return superseded
+
+
 def eager_close_claim_slot(graph: GraphRepository, winner: Claim) -> int:
     """Supersede other active values in a registry-exclusive claim slot.
 

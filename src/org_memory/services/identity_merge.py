@@ -16,8 +16,19 @@ from org_memory.db.orm import (
     Relationship,
     utcnow,
 )
-from org_memory.db.repositories import PersonMergeDecisionRepository, PersonRepository
+from org_memory.db.repositories import (
+    GraphRepository,
+    JobRepository,
+    PersonMergeDecisionRepository,
+    PersonRepository,
+)
 from org_memory.domain.emails import normalize_email
+from org_memory.domain.fact_lifecycle import FactStatus
+from org_memory.services.temporality.eager_close import (
+    eager_close_claim_slot_and_enqueue_conflict,
+    eager_close_relationship_slot_and_enqueue_conflict,
+)
+from org_memory.taxonomy_registry import get_taxonomy_registry
 
 __all__ = [
     "corroborating_signals",
@@ -26,6 +37,7 @@ __all__ = [
     "identity_fingerprint",
     "merge_people",
     "normalize_email",
+    "reconcile_exclusive_slots_after_person_merge",
     "reconcile_merged_identity_conflicts",
     "refresh_identity_metadata",
     "split_person",
@@ -278,6 +290,60 @@ def split_person(session: Session, root: Person, child: Person, reason: str) -> 
         decision.status = "split_conflict"
         decision.reversed_at = utcnow()
         decision.reversal_reason = reason
+
+
+def reconcile_exclusive_slots_after_person_merge(session: Session, root: Person) -> None:
+    """Eager-close exclusive claim/edge slots and enqueue conflicts after a merge.
+
+    Merging reassigns rows onto the survivor without adjudicating exclusivity.
+    Registry-exclusive slots must close (and residual races must get a conflict
+    job) the same way extract and promote do.
+    """
+    graph = GraphRepository(session)
+    jobs = JobRepository(session)
+    registry = get_taxonomy_registry()
+    person_id = root.canonical_id
+
+    predicates = [
+        row[0]
+        for row in session.query(Claim.predicate)
+        .filter(
+            Claim.workspace_id == root.workspace_id,
+            Claim.subject_type == "person",
+            Claim.subject_id == person_id,
+            Claim.status == FactStatus.active.value,
+        )
+        .distinct()
+        .all()
+    ]
+    for predicate in predicates:
+        if registry.predicate_mutually_exclusive(predicate) is not True:
+            continue
+        claims = graph.active_claims_for_slot_locked("person", person_id, predicate)
+        if not claims:
+            continue
+        # Seed with any active row; eager_close re-ranks the full locked slot.
+        eager_close_claim_slot_and_enqueue_conflict(graph, jobs, claims[0])
+
+    for rel_type, rel_def in registry.relationship_types.items():
+        if not rel_def.mutually_exclusive:
+            continue
+        rows = (
+            session.query(Relationship)
+            .filter(
+                Relationship.workspace_id == root.workspace_id,
+                Relationship.from_type == "person",
+                Relationship.from_id == person_id,
+                Relationship.relationship_type == rel_type,
+                Relationship.status == FactStatus.active.value,
+            )
+            .order_by(Relationship.relationship_id)
+            .with_for_update()
+            .all()
+        )
+        if not rows:
+            continue
+        eager_close_relationship_slot_and_enqueue_conflict(graph, jobs, rows[0])
 
 
 def reconcile_merged_identity_conflicts(session: Session, root: Person) -> None:
