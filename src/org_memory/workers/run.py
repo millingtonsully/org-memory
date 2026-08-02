@@ -104,8 +104,19 @@ class Worker:
                 return False
             try:
                 handler = self._handlers[JobType(job.job_type)]
-                handler(session, job, jobs)
+                requeue_push = handler(session, job, jobs)
                 jobs.mark_done(job)
+                if job.job_type == JobType.push_taxonomy_proposal_webhook.value:
+                    session.refresh(job)
+                    needs_another = bool((job.payload or {}).get("needs_another_pass"))
+                    if requeue_push or needs_another:
+                        jobs.enqueue(JobType.push_taxonomy_proposal_webhook, {})
+                        logger.info(
+                            "worker.taxonomy_webhook_requeued",
+                            prior_job_id=job.job_id,
+                            from_leftovers=bool(requeue_push),
+                            from_flag=needs_another,
+                        )
             except Exception as exc:  # noqa: BLE001
                 jobs.mark_failed(
                     job,

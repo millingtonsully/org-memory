@@ -54,7 +54,21 @@ class JobRepository:
         return now
 
     def _refresh_open_job(self, job: Job, payload: dict) -> str:
-        job.payload = payload
+        merged = dict(payload)
+        # Singleton push jobs: an enqueue while running cannot create a second
+        # open row (unique index). Mark the lease so process_one schedules a
+        # follow-up pass after mark_done — otherwise proposals created mid-push
+        # are never delivered.
+        if (
+            job.job_type == JobType.push_taxonomy_proposal_webhook.value
+            and job.status == "running"
+            and job.locked_until is not None
+            and job.locked_until >= utcnow()
+        ):
+            merged["needs_another_pass"] = True
+        elif job.payload and job.payload.get("needs_another_pass"):
+            merged["needs_another_pass"] = True
+        job.payload = merged
         job.run_after = self._run_after_for(job.job_type)
         job.updated_at = utcnow()
         if job.status == "running" and (job.locked_until is None or job.locked_until < utcnow()):
