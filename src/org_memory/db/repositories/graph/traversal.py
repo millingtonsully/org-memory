@@ -68,7 +68,8 @@ class GraphTraversalMixin(GraphRepositoryBase):
             if as_of is not None or believed_as_of is not None
             else ["active"]
         )
-        # Current reads: bind now so validity_as_of_sql matches hybrid _VALIDITY_NOW.
+        # Current reads: bind now + day grain so validity_as_of_sql matches
+        # query_facts / fact_candidates (grain-expanded valid_from).
         effective_as_of = as_of
         effective_grain = as_of_grain or "unknown"
         if as_of is None and believed_as_of is None:

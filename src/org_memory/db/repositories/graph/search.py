@@ -6,26 +6,19 @@ from datetime import datetime
 
 from sqlalchemy import text as sql
 
+from org_memory.db.orm import utcnow
 from org_memory.db.repositories._common import _document_visibility_filters_sql
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
 from org_memory.services.temporality.grain import validity_as_of_sql
 
 # Shared temporal predicates for claim and relationship legs.
-_VALIDITY_NOW = """
-    (c.valid_from IS NULL OR c.valid_from <= now())
-    AND (c.valid_to IS NULL OR c.valid_to > now())
-"""
 _VALIDITY_AS_OF = validity_as_of_sql("c")
 _BELIEF_AS_OF = """
     (CAST(:believed_as_of AS timestamptz) IS NULL
      OR (c.recorded_at <= :believed_as_of
          AND (c.invalidated_at IS NULL
               OR c.invalidated_at > :believed_as_of)))
-"""
-_REL_VALIDITY_NOW = """
-    (r.valid_from IS NULL OR r.valid_from <= now())
-    AND (r.valid_to IS NULL OR r.valid_to > now())
 """
 _REL_VALIDITY_AS_OF = validity_as_of_sql("r")
 _REL_BELIEF_AS_OF = """
@@ -63,19 +56,24 @@ class GraphSearchMixin(GraphRepositoryBase):
         """Keyword candidates filtered by evidence ACL and temporal axes in SQL.
 
         When ``as_of`` / ``believed_as_of`` are unset, only currently active and
-        currently valid facts participate (hybrid "true now"). When either axis
-        is set, active and superseded rows whose windows contain the point are
-        eligible — matching ``query_facts`` / ``paths_from``. ``as_of_grain``
-        selects month/quarter/year bucket overlap when the query is coarse.
+        currently valid facts participate (hybrid "true now"), using the same
+        grain-expanded validity predicate as ``query_facts`` / ``paths_from``.
+        When either axis is set, active and superseded rows whose windows contain
+        the point are eligible. ``as_of_grain`` selects month/quarter/year bucket
+        overlap when the query is coarse.
         """
         temporal = as_of is not None or believed_as_of is not None
         statuses = ["active", "superseded"] if temporal else ["active"]
-        if temporal:
-            claim_temporal = f"{_VALIDITY_AS_OF} AND {_BELIEF_AS_OF}"
-            rel_temporal = f"{_REL_VALIDITY_AS_OF} AND {_REL_BELIEF_AS_OF}"
-        else:
-            claim_temporal = _VALIDITY_NOW
-            rel_temporal = _REL_VALIDITY_NOW
+        claim_temporal = f"{_VALIDITY_AS_OF} AND {_BELIEF_AS_OF}"
+        rel_temporal = f"{_REL_VALIDITY_AS_OF} AND {_REL_BELIEF_AS_OF}"
+        # Current reads: bind now + day grain so month/year facts whose stored
+        # valid_from is mid-bucket still match (parity with paths_from).
+        effective_as_of = as_of
+        effective_grain = as_of_grain or "unknown"
+        if as_of is None and believed_as_of is None:
+            effective_as_of = utcnow()
+            if as_of_grain is None:
+                effective_grain = "day"
 
         rows = self._session.execute(
             sql(f"""
@@ -193,8 +191,8 @@ class GraphSearchMixin(GraphRepositoryBase):
                 "updated_to": updated_to,
                 "doc_id": doc_id,
                 "statuses": statuses,
-                "as_of": as_of,
-                "as_of_grain": as_of_grain or "unknown",
+                "as_of": effective_as_of,
+                "as_of_grain": effective_grain,
                 "believed_as_of": believed_as_of,
                 "limit": limit,
             },

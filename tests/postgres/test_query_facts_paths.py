@@ -1085,3 +1085,71 @@ def test_fact_candidates_honor_as_of_for_superseded(hermetic_workspace) -> None:
     matched = [hit for hit in with_as_of if hit["fact_id"] == old_id]
     assert len(matched) == 1
     assert matched[0]["status"] == "superseded"
+
+
+def test_fact_candidates_current_honors_month_grain(hermetic_workspace) -> None:
+    """Hybrid current expands valid_from by time_grain like query_facts."""
+    from unittest.mock import patch
+
+    from org_memory.db.engine import session_scope
+    from org_memory.db.orm import Claim
+    from org_memory.db.repositories import GraphRepository
+    from org_memory.domain.models import Principal
+
+    doc_id = f"test:fact-cand-grain-{hermetic_workspace}"
+    subject = str(uuid.uuid4())
+    claim_id = f"claim-grain-{uuid.uuid4().hex[:8]}"
+    phrase = f"QuasarManager{hermetic_workspace[:8]}"
+    # Mid-month "now" with valid_from later the same month: raw valid_from > now
+    # would exclude; month grain expansion must include.
+    fixed_now = datetime(2026, 8, 10, tzinfo=UTC)
+    valid_from = datetime(2026, 8, 20, tzinfo=UTC)
+
+    with session_scope() as session:
+        session.add(
+            make_doc(
+                doc_id=doc_id,
+                workspace_id=hermetic_workspace,
+                org_visible=True,
+                allowed_principals=[],
+                event_time=valid_from,
+            )
+        )
+        session.add(
+            Claim(
+                claim_id=claim_id,
+                workspace_id=hermetic_workspace,
+                subject_type="person",
+                subject_id=subject,
+                predicate="title",
+                object_text=phrase,
+                valid_from=valid_from,
+                valid_to=None,
+                recorded_at=valid_from,
+                time_grain="month",
+                confidence=0.95,
+                status="active",
+                evidence_doc_ids=[doc_id],
+                created_by="test",
+            )
+        )
+
+    principal = Principal(principal_id=USER_ALICE)
+    with session_scope() as session:
+        graph = GraphRepository(session)
+        with patch(
+            "org_memory.db.repositories.graph.search.utcnow",
+            return_value=fixed_now,
+        ):
+            hybrid = graph.fact_candidates(phrase, principal, limit=10)
+        structured = graph.claims_for_viewer(
+            "person",
+            subject,
+            principal,
+            statuses=["active"],
+            as_of=fixed_now,
+            as_of_grain="day",
+        )
+
+    assert any(hit["fact_id"] == claim_id for hit in hybrid)
+    assert any(claim.claim_id == claim_id for claim, _ in structured)
