@@ -92,7 +92,7 @@ POST /tools/retrieve_context
 | `subjects` | Explicit `{type, id}` seeds for facts/paths |
 | `about` | Viewer-scoped name resolved into subject seeds |
 | `as_of` / `believed_as_of` | World-time and belief-time filters; when omitted, compose derives a temporal plan from the query when it can |
-| `as_of_grain` | World-time matching grain (`day` \| `month` \| `quarter` \| `year` \| `unknown`); host value wins over planner grain |
+| `as_of_grain` | World-time matching grain (`day` \| `month` \| `quarter` \| `year` \| `unknown`); invalid values fail with 422; host value wins over planner grain |
 | `max_tokens` | Optional packing budget |
 | filters | Passage filters (`source_*`, dates, `author`, …) |
 

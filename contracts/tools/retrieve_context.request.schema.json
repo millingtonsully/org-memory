@@ -30,6 +30,7 @@
     "believed_as_of": {"type": "string", "format": "date-time"},
     "as_of_grain": {
       "type": "string",
+      "enum": ["day", "month", "quarter", "year", "unknown"],
       "description": "World-time grain for as_of: day|month|quarter|year|unknown."
     },
     "path_max_depth": {"type": "integer", "minimum": 1, "maximum": 10, "default": 2},

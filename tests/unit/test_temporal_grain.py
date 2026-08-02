@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
+from org_memory.api.routes_facts import QueryFactsRequest
+from org_memory.api.routes_retrieve import RetrieveContextRequest
 from org_memory.services.temporality.grain import (
     expand_valid_from,
     fact_matches_as_of,
+    parse_host_as_of_grain,
     resolve_validity_query_point,
 )
 
@@ -84,3 +90,28 @@ def test_resolve_current_defaults_to_now_day() -> None:
     )
     assert point == now
     assert grain == "day"
+
+
+def test_parse_host_as_of_grain_accepts_known_values() -> None:
+    assert parse_host_as_of_grain(None) is None
+    assert parse_host_as_of_grain("") is None
+    assert parse_host_as_of_grain("  Month ") == "month"
+
+
+def test_parse_host_as_of_grain_rejects_unknown() -> None:
+    with pytest.raises(ValueError, match="as_of_grain must be one of"):
+        parse_host_as_of_grain("week")
+
+
+def test_query_facts_request_rejects_invalid_as_of_grain() -> None:
+    with pytest.raises(ValidationError):
+        QueryFactsRequest(
+            subject_type="person",
+            subject_id="p1",
+            as_of_grain="week",
+        )
+
+
+def test_retrieve_context_request_accepts_month_grain() -> None:
+    body = RetrieveContextRequest(query="title in March", as_of_grain="month")
+    assert body.as_of_grain == "month"

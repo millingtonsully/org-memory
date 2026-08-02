@@ -10,6 +10,7 @@ from org_memory.services.temporality.diff import diff_fact_snapshots
 from org_memory.services.temporality.grain import (
     fact_matches_as_of,
     normalize_grain,
+    parse_host_as_of_grain,
     validity_as_of_sql,
 )
 from org_memory.services.temporality.grounding import ground_fact_times
@@ -30,6 +31,7 @@ __all__ = [
     "fact_matches_as_of",
     "ground_fact_times",
     "normalize_grain",
+    "parse_host_as_of_grain",
     "plan_temporal_query",
     "validity_as_of_sql",
 ]

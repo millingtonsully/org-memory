@@ -16,7 +16,8 @@
     "believed_as_of": {"type": "string", "format": "date-time"},
     "as_of_grain": {
       "type": "string",
-      "enum": ["day", "month", "quarter", "year", "unknown"]
+      "enum": ["day", "month", "quarter", "year", "unknown"],
+      "description": "World-time grain for as_of matching (month/quarter/year use calendar-bucket overlap)."
     }
   },
   "additionalProperties": false

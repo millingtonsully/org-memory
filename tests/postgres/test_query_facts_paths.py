@@ -417,6 +417,24 @@ def test_query_facts_http_rejects_unknown_predicate(hermetic_workspace) -> None:
     assert "not in taxonomy_registry" in response.json()["detail"]
 
 
+def test_query_facts_http_rejects_invalid_as_of_grain(hermetic_workspace) -> None:
+    from fastapi.testclient import TestClient
+
+    from org_memory.main import app
+
+    client = TestClient(app)
+    response = client.post(
+        "/tools/query_facts",
+        headers=_headers(),
+        json={
+            "subject_type": "person",
+            "subject_id": _subject(),
+            "as_of_grain": "week",
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_query_facts_http_truncation_flag(hermetic_workspace) -> None:
     """When more matching facts exist than limit, truncated is true."""
     from fastapi.testclient import TestClient

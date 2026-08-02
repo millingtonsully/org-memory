@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from org_memory.api.deps import bind_principal, get_session, require_api_key
+from org_memory.api.temporal_fields import HostAsOfGrain
 from org_memory.db.repositories import GraphRepository
 from org_memory.domain.models import Principal
 from org_memory.services.facts_diff import diff_subject_facts
@@ -40,7 +41,7 @@ class QueryFactsRequest(BaseModel):
             "(recorded_at <= believed_as_of < invalidated_at)."
         ),
     )
-    as_of_grain: str | None = Field(
+    as_of_grain: HostAsOfGrain = Field(
         default=None,
         description=(
             "World-time grain for as_of matching: day|month|quarter|year|unknown. "
@@ -98,7 +99,7 @@ class DiffFactsRequest(BaseModel):
             "Belief-time end of the snapshot pair; must be after believed_as_of_from."
         ),
     )
-    as_of_grain: str | None = Field(
+    as_of_grain: HostAsOfGrain = Field(
         default=None,
         description=(
             "World-time grain applied to both snapshots when using as_of_from/as_of_to."
@@ -162,7 +163,7 @@ class QueryPathsRequest(BaseModel):
             "(recorded_at <= believed_as_of < invalidated_at)."
         ),
     )
-    as_of_grain: str | None = Field(
+    as_of_grain: HostAsOfGrain = Field(
         default=None,
         description=(
             "World-time grain for as_of matching on edges "

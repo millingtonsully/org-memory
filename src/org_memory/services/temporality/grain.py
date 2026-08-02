@@ -9,13 +9,32 @@ from typing import Any
 from org_memory.services.temporality.types import TimeGrain
 
 _GRAINS: set[str] = {"day", "month", "quarter", "year", "unknown"}
+_GRAIN_CHOICES = "day, month, quarter, year, unknown"
 
 
 def normalize_grain(raw: Any) -> TimeGrain:
+    """Coerce a stored/inferred grain to a known value (unknown if unrecognized).
+
+    Use ``parse_host_as_of_grain`` for host/API ``as_of_grain`` (fail closed).
+    """
     value = str(raw or "unknown").strip().lower()
     if value in _GRAINS:
         return value  # type: ignore[return-value]
     return "unknown"
+
+
+def parse_host_as_of_grain(raw: Any) -> TimeGrain | None:
+    """Parse host ``as_of_grain``; omit/blank → None; invalid → ValueError."""
+    if raw is None:
+        return None
+    value = str(raw).strip().lower()
+    if not value:
+        return None
+    if value not in _GRAINS:
+        raise ValueError(
+            f"as_of_grain must be one of: {_GRAIN_CHOICES} (got {raw!r})"
+        )
+    return value  # type: ignore[return-value]
 
 
 def expand_valid_from(

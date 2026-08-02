@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from org_memory.api.deps import bind_principal, get_retrieve_context_service, require_api_key
+from org_memory.api.temporal_fields import HostAsOfGrain
 from org_memory.domain.models import Principal
 from org_memory.services.retrieve_context import RetrieveContextService, SubjectRef
 
@@ -31,7 +32,7 @@ class RetrieveContextRequest(BaseModel):
     )
     as_of: datetime | None = None
     believed_as_of: datetime | None = None
-    as_of_grain: str | None = Field(
+    as_of_grain: HostAsOfGrain = Field(
         default=None,
         description=(
             "World-time grain for as_of matching: day|month|quarter|year|unknown. "

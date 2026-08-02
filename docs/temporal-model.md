@@ -38,8 +38,9 @@ Optional `time_grain` on claims and relationships (`day`, `month`, `quarter`,
 expands a fact's `valid_from` to the start of its grain, and when the query
 supplies `as_of_grain` of `month` / `quarter` / `year`, uses overlap with that
 calendar bucket (for example, “in March” matches any fact that intersects
-March). Point queries (`as_of_grain` unset or `day`/`unknown`) keep half-open
-point containment after fact-side expansion.
+March). Host `as_of_grain` is a closed enum on tool contracts; invalid values
+fail with 422. Point queries (`as_of_grain` unset or `day`/`unknown`) keep
+half-open point containment after fact-side expansion.
 
 ## Query surface
 
