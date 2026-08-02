@@ -6,7 +6,7 @@ and scoping run automatically. No principal header; visibility comes from the en
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from org_memory.api.deps import get_ingest_service, require_api_key
@@ -40,6 +40,13 @@ async def ingest_envelope(
             envelope,
             raw_payload=raw_payload,
         )
+    except ValueError as exc:
+        INGEST_FAIL.inc()
+        with session_scope() as session:
+            ConnectorStatusRepository(session).record_failure(
+                envelope.source_system, f"{type(exc).__name__}: {exc}"
+            )
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         INGEST_FAIL.inc()
         # Record failure in a separate session after ingest rollback.

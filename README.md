@@ -63,6 +63,9 @@ POST /tools/retrieve_context
    evidence are retracted.
 3. Embed and extract run on the **worker**; ingress only accepts and persists
    the envelope.
+4. Registry-bound `structured_fields` write person ground-truth claims when the
+   author resolves to a person; unresolved author fails the ingest with 422
+   instead of accepting with zero structured writes.
 
 **Read path (`retrieve_context`) decisions**
 
@@ -267,7 +270,7 @@ schemas), `config/taxonomy_registry/` (live ontology instances),
 | `services/taxonomy_proposals.py` / `promotions.py` | Host field-value proposals and agent promote |
 | `services/procedural_memory.py` | Procedural memory create/search |
 | `services/retention.py` / `collaboration.py` | Retention purge; collaboration edge aggregation |
-| `services/structured_writers.py` | Shared structured write helpers |
+| `services/structured_writers.py` | Registry-bound structured fields → claims (fail closed if person unresolved) |
 
 ### Data access
 

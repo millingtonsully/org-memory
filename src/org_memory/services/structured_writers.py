@@ -2,7 +2,9 @@
 
 Ingest always persists structured_fields on doc_metadata. This module promotes
 them to active claims only when taxonomy_registry marks the key as ground truth
-via structured_field_keys.
+via structured_field_keys. Registry-bound person fields require a resolvable
+author person; missing subject fails the ingest rather than accepting with zero
+writes.
 """
 
 from __future__ import annotations
@@ -55,15 +57,22 @@ class RegistryBackedStructuredFieldWriter:
         registry = self._registry or get_taxonomy_registry()
         doc = session.get(Document, doc_id)
         if doc is None:
+            raise ValueError(
+                f"Cannot apply structured fields; document not found (doc_id={doc_id})."
+            )
+
+        bound_keys = _person_bound_field_keys(registry, fields)
+        if not bound_keys:
             return []
+
         subject = _author_person_subject(session, doc)
         if subject is None:
-            logger.info(
-                "structured_writer.no_person_subject",
-                doc_id=doc_id,
-                fields=len(fields),
+            keys = ", ".join(sorted(bound_keys))
+            raise ValueError(
+                "Cannot apply registry-bound structured fields without a resolvable "
+                f"author person (doc_id={doc_id}; fields={keys}). Provide "
+                "author_external_id mapped to a person, or a verified author_email."
             )
-            return []
 
         graph = GraphRepository(session)
         jobs = JobRepository(session)
@@ -130,6 +139,18 @@ class RegistryBackedStructuredFieldWriter:
             if pred.mutually_exclusive:
                 eager_close_claim_slot_and_enqueue_conflict(graph, jobs, claim)
         return written
+
+
+def _person_bound_field_keys(
+    registry: TaxonomyRegistry, fields: list[StructuredField]
+) -> set[str]:
+    """Registry ground-truth keys whose predicates accept person subjects."""
+    keys: set[str] = set()
+    for field in fields:
+        pred = registry.ground_truth_predicate_for_structured_key(field.key)
+        if pred is not None and "person" in pred.subject_types:
+            keys.add(field.key)
+    return keys
 
 
 def _author_person_subject(session: Session, doc: Document) -> tuple[str, str] | None:
