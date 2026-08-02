@@ -60,13 +60,14 @@ class JobRepository:
         # follow-up pass after mark_done — otherwise proposals created mid-push
         # are never delivered.
         if (
-            job.job_type == JobType.push_taxonomy_proposal_webhook.value
-            and job.status == "running"
-            and job.locked_until is not None
-            and job.locked_until >= utcnow()
+            (
+                job.job_type == JobType.push_taxonomy_proposal_webhook.value
+                and job.status == "running"
+                and job.locked_until is not None
+                and job.locked_until >= utcnow()
+            )
+            or (job.payload and job.payload.get("needs_another_pass"))
         ):
-            merged["needs_another_pass"] = True
-        elif job.payload and job.payload.get("needs_another_pass"):
             merged["needs_another_pass"] = True
         job.payload = merged
         job.run_after = self._run_after_for(job.job_type)
