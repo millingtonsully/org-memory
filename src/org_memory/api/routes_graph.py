@@ -10,32 +10,21 @@ the point — same status and grain rules as ``query_facts`` / ``query_paths``.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BeforeValidator
 from sqlalchemy.orm import Session
 
 from org_memory.api.deps import bind_principal, get_session, require_api_key
+from org_memory.api.temporal_fields import HostAsOfGrainQuery
 from org_memory.core.errors import NotFoundError
 from org_memory.db.repositories import (
     GraphRepository,
     PersonRepository,
 )
 from org_memory.domain.models import Principal
-from org_memory.services.temporality.grain import (
-    parse_host_as_of_grain,
-    temporal_read_statuses,
-)
-from org_memory.services.temporality.types import TimeGrain
+from org_memory.services.temporality.grain import temporal_read_statuses
 
 router = APIRouter(prefix="/v1/graph", dependencies=[Depends(require_api_key)])
-
-AsOfGrainParam = Annotated[
-    TimeGrain | None,
-    BeforeValidator(parse_host_as_of_grain),
-    Query(),
-]
 
 
 def _relationship_dict(r, visible_doc_ids: list[str]) -> dict:
@@ -78,7 +67,7 @@ def _viewer_graph_facts(
     principal: Principal,
     as_of: datetime | None,
     believed_as_of: datetime | None,
-    as_of_grain: AsOfGrainParam,
+    as_of_grain: HostAsOfGrainQuery,
 ) -> tuple[list[dict], list[dict]]:
     statuses = temporal_read_statuses(as_of, believed_as_of)
     relationships = [
@@ -137,7 +126,7 @@ def person_card(
     canonical_id: str,
     as_of: datetime | None = Query(default=None),
     believed_as_of: datetime | None = Query(default=None),
-    as_of_grain: AsOfGrainParam = None,
+    as_of_grain: HostAsOfGrainQuery = None,
     principal: Principal = Depends(bind_principal),
     session: Session = Depends(get_session),
 ) -> dict:
@@ -206,7 +195,7 @@ def entity_card(
     entity_id: str,
     as_of: datetime | None = Query(default=None),
     believed_as_of: datetime | None = Query(default=None),
-    as_of_grain: AsOfGrainParam = None,
+    as_of_grain: HostAsOfGrainQuery = None,
     principal: Principal = Depends(bind_principal),
     session: Session = Depends(get_session),
 ) -> dict:

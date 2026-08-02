@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from org_memory.services.temporality.grain import normalize_grain, shift_months
@@ -90,15 +90,15 @@ def _resolve_relative(
     expression: str, t_ref: datetime
 ) -> tuple[datetime, TimeGrain] | None:
     if _A_FEW_WEEKS.search(expression):
-        return t_ref - __import__("datetime").timedelta(weeks=3), "day"
+        return t_ref - timedelta(weeks=3), "day"
     match = _WEEKS_AGO.search(expression)
     if match:
         weeks = int(match.group(1))
-        return t_ref - __import__("datetime").timedelta(weeks=weeks), "day"
+        return t_ref - timedelta(weeks=weeks), "day"
     match = _DAYS_AGO.search(expression)
     if match:
         days = int(match.group(1))
-        return t_ref - __import__("datetime").timedelta(days=days), "day"
+        return t_ref - timedelta(days=days), "day"
     match = _MONTHS_AGO.search(expression)
     if match:
         months = int(match.group(1))
@@ -108,11 +108,11 @@ def _resolve_relative(
         years = int(match.group(1))
         return shift_months(t_ref, -12 * years), "year"
     if _YESTERDAY.search(expression):
-        return t_ref - __import__("datetime").timedelta(days=1), "day"
+        return t_ref - timedelta(days=1), "day"
     if _TODAY.search(expression):
         return t_ref, "day"
     if _LAST_WEEK.search(expression):
-        return t_ref - __import__("datetime").timedelta(weeks=1), "day"
+        return t_ref - timedelta(weeks=1), "day"
     if _LAST_MONTH.search(expression):
         return shift_months(t_ref, -1), "month"
     if _LAST_YEAR.search(expression):

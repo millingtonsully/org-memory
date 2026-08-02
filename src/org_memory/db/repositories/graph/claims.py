@@ -4,18 +4,29 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, text as sql
 from sqlalchemy.exc import IntegrityError
 
 from org_memory.db.orm import Claim, Document, utcnow
-from org_memory.db.repositories.graph.base import GraphRepositoryBase
+from org_memory.db.repositories.graph.base import (
+    VISIBLE_DOCS_CTE,
+    GraphRepositoryBase,
+    all_visible_sql,
+    evidence_lateral_sql,
+)
 from org_memory.domain.fact_lifecycle import (
     ConflictCandidate,
     FactStatus,
     rank_conflict_candidates,
     transition_fact,
 )
+from org_memory.domain.models import Principal
 from org_memory.domain.proposals import precedence_rank
+from org_memory.services.temporality.grain import (
+    belief_as_of_sql,
+    resolve_validity_query_point,
+    validity_as_of_sql,
+)
 from org_memory.services.temporality.merge import merge_temporal_fields
 
 _LIVE_CLAIM_STATUSES = (
@@ -23,6 +34,10 @@ _LIVE_CLAIM_STATUSES = (
     FactStatus.active.value,
     FactStatus.retracted.value,
 )
+_CLAIM_VALIDITY_AS_OF = validity_as_of_sql("c")
+_CLAIM_BELIEF_AS_OF = belief_as_of_sql("c")
+_CLAIM_ALL_VISIBLE_SQL = all_visible_sql("c")
+_CLAIM_EVIDENCE_LATERAL = evidence_lateral_sql("c")
 
 
 class GraphClaimsMixin(GraphRepositoryBase):
@@ -288,3 +303,72 @@ class GraphClaimsMixin(GraphRepositoryBase):
             existing.invalidated_at = None
         existing.updated_at = utcnow()
         return existing
+
+    def claims_for_viewer(
+        self,
+        subject_type: str,
+        subject_id: str,
+        principal: Principal,
+        statuses: list[str] | None = None,
+        as_of: datetime | None = None,
+        believed_as_of: datetime | None = None,
+        as_of_grain: str | None = None,
+    ) -> list[tuple[Claim, list[str]]]:
+        """Return claims whose *entire* evidence set is visible to this viewer.
+
+        All-visible ACL and grain-aware validity run in SQL so private claims never
+        enter the result set (same predicates as hybrid ``fact_candidates``).
+        """
+        effective_as_of, effective_grain = resolve_validity_query_point(
+            as_of=as_of,
+            believed_as_of=believed_as_of,
+            as_of_grain=as_of_grain,
+            now=utcnow(),
+        )
+        status_clause = (
+            "AND c.status = ANY(CAST(:statuses AS text[]))" if statuses else ""
+        )
+        rows = self._session.execute(
+            sql(f"""
+                WITH {VISIBLE_DOCS_CTE}
+                SELECT c.claim_id, evidence.doc_ids AS evidence_doc_ids
+                FROM claims c
+                {_CLAIM_EVIDENCE_LATERAL}
+                WHERE c.workspace_id = :workspace_id
+                  AND c.subject_type = :subject_type
+                  AND c.subject_id = :subject_id
+                  {status_clause}
+                  AND {_CLAIM_VALIDITY_AS_OF}
+                  AND {_CLAIM_BELIEF_AS_OF}
+                  AND {_CLAIM_ALL_VISIBLE_SQL}
+                ORDER BY c.created_at DESC
+            """),
+            {
+                "workspace_id": self._ws,
+                "viewer_principals": principal.all_principals(),
+                "subject_type": subject_type,
+                "subject_id": subject_id,
+                "statuses": statuses or [],
+                "as_of": effective_as_of,
+                "as_of_grain": effective_grain,
+                "believed_as_of": believed_as_of,
+            },
+        ).mappings().all()
+        if not rows:
+            return []
+        by_id = {
+            claim.claim_id: claim
+            for claim in self._session.query(Claim)
+            .filter(
+                Claim.workspace_id == self._ws,
+                Claim.claim_id.in_([row["claim_id"] for row in rows]),
+            )
+            .all()
+        }
+        visible: list[tuple[Claim, list[str]]] = []
+        for row in rows:
+            claim = by_id.get(row["claim_id"])
+            if claim is None:
+                continue
+            visible.append((claim, list(row["evidence_doc_ids"] or [])))
+        return visible

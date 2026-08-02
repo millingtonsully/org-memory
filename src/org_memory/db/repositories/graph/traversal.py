@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import text as sql
 
 from org_memory.db.orm import Relationship, utcnow
-from org_memory.db.repositories.graph.base import GraphRepositoryBase
+from org_memory.db.repositories.graph.base import VISIBLE_DOCS_SELECT, GraphRepositoryBase
 from org_memory.domain.models import Principal
 from org_memory.services.temporality.grain import (
     belief_as_of_sql,
@@ -84,15 +84,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
             self._session.execute(
                 sql(f"""
                     WITH RECURSIVE visible_docs AS (
-                        SELECT d.doc_id
-                        FROM documents d
-                        WHERE d.workspace_id = :workspace_id
-                          AND d.deleted = false
-                          AND (
-                              d.org_visible = true
-                              OR d.allowed_principals
-                                 && CAST(:viewer_principals AS text[])
-                          )
+{VISIBLE_DOCS_SELECT}
                     ),
                     walk AS (
                         SELECT

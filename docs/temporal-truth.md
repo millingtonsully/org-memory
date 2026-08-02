@@ -332,8 +332,10 @@ planted vectors remain appropriate for retrieval wiring tests elsewhere.
 
 | Path | Role |
 | ---- | ---- |
-| [`src/org_memory/db/repositories/graph/claims.py`](../src/org_memory/db/repositories/graph/claims.py) | `supersede_claim(..., valid_to=)`; slot locks |
-| [`src/org_memory/db/repositories/graph/writes.py`](../src/org_memory/db/repositories/graph/writes.py) | Relationship supersede; subject claim/edge viewer reads (validity + belief + all-visible ACL in SQL) |
+| [`src/org_memory/db/repositories/graph/claims.py`](../src/org_memory/db/repositories/graph/claims.py) | Claim lifecycle; SQL viewer claim reads (validity + belief + ACL) |
+| [`src/org_memory/db/repositories/graph/entities.py`](../src/org_memory/db/repositories/graph/entities.py) | Entity mutations; SQL all-visible browse/search/get |
+| [`src/org_memory/db/repositories/graph/relationships.py`](../src/org_memory/db/repositories/graph/relationships.py) | Relationship lifecycle; SQL viewer edge reads |
+| [`src/org_memory/db/repositories/graph/evidence.py`](../src/org_memory/db/repositories/graph/evidence.py) | Document-scoped evidence retraction |
 | [`src/org_memory/db/repositories/graph/search.py`](../src/org_memory/db/repositories/graph/search.py) | Hybrid fact candidates with temporal axes + ACL-in-SQL |
 | [`src/org_memory/db/repositories/graph/traversal.py`](../src/org_memory/db/repositories/graph/traversal.py) | Path walks with temporal + ACL-in-SQL |
 
