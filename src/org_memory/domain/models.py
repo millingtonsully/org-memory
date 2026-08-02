@@ -256,6 +256,7 @@ class FactPassage(BaseModel):
     status: str = "active"
     valid_from: datetime | None = None
     valid_to: datetime | None = None
+    time_grain: str = "unknown"
     score: float
     rank_debug: dict = Field(default_factory=dict)
 

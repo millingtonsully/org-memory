@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
 from org_memory.api.tool_wire import (
     SearchKnowledgeBaseRequest,
     WorldbuilderKbRequest,
+    fact_to_kb_hit,
     parse_yyyy_mm_dd,
 )
+from org_memory.domain.models import FactPassage
 
 
 def test_parse_yyyy_mm_dd_end_of_day() -> None:
@@ -39,3 +41,21 @@ def test_search_kb_accepts_any_source_type() -> None:
 def test_worldbuilder_kb_resolves_about() -> None:
     body = WorldbuilderKbRequest(about="Ada")
     assert body.resolved_query() == "Ada"
+
+
+def test_fact_to_kb_hit_includes_time_grain() -> None:
+    hit = fact_to_kb_hit(
+        FactPassage(
+            fact_id="c1",
+            fact_type="claim",
+            text="title: Engineer",
+            confidence=0.9,
+            evidence_doc_ids=["doc:1"],
+            status="active",
+            valid_from=datetime(2026, 3, 1, tzinfo=UTC),
+            time_grain="month",
+            score=1.0,
+        )
+    )
+    assert hit["time_grain"] == "month"
+    assert hit["status"] == "active"

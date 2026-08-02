@@ -524,6 +524,7 @@ def test_query_facts_http_as_of_returns_superseded_window(hermetic_workspace) ->
                 valid_from=_JAN,
                 valid_to=_JUL,
                 recorded_at=_JAN,
+                time_grain="day",
                 confidence=0.9,
                 status="superseded",
                 evidence_doc_ids=[doc_id],
@@ -540,6 +541,7 @@ def test_query_facts_http_as_of_returns_superseded_window(hermetic_workspace) ->
                 object_text="Staff Engineer",
                 valid_from=_JUL,
                 recorded_at=_JUL,
+                time_grain="day",
                 confidence=0.95,
                 status="active",
                 evidence_doc_ids=[doc_id],
@@ -563,6 +565,7 @@ def test_query_facts_http_as_of_returns_superseded_window(hermetic_workspace) ->
     assert body["returned"] == 1
     assert body["facts"][0]["fact_id"] == old_id
     assert body["facts"][0]["status"] == "superseded"
+    assert body["facts"][0]["time_grain"] == "day"
     assert body["as_of"] is not None
 
 
@@ -1159,6 +1162,7 @@ def test_fact_candidates_honor_as_of_for_superseded(hermetic_workspace) -> None:
                 valid_from=_JAN,
                 valid_to=_JUL,
                 recorded_at=_JAN,
+                time_grain="day",
                 confidence=0.9,
                 status="superseded",
                 evidence_doc_ids=[doc_id],
@@ -1178,6 +1182,7 @@ def test_fact_candidates_honor_as_of_for_superseded(hermetic_workspace) -> None:
     matched = [hit for hit in with_as_of if hit["fact_id"] == old_id]
     assert len(matched) == 1
     assert matched[0]["status"] == "superseded"
+    assert matched[0]["time_grain"] == "day"
 
 
 def test_fact_candidates_current_honors_month_grain(hermetic_workspace) -> None:

@@ -40,7 +40,9 @@ supplies `as_of_grain` of `month` / `quarter` / `year`, uses overlap with that
 calendar bucket (for example, “in March” matches any fact that intersects
 March). Host `as_of_grain` is a closed enum on tool contracts; invalid values
 fail with 422. Point queries (`as_of_grain` unset or `day`/`unknown`) keep
-half-open point containment after fact-side expansion.
+half-open point containment after fact-side expansion. Read payloads for
+`query_facts`, hybrid search facts, and graph cards include the stored
+`time_grain` so agents see the precision used for matching.
 
 ## Query surface
 

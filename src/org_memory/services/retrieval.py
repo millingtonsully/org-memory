@@ -401,6 +401,7 @@ class RetrievalService:
                 status=facts_by_id[fact_id].get("status") or "active",
                 valid_from=facts_by_id[fact_id].get("valid_from"),
                 valid_to=facts_by_id[fact_id].get("valid_to"),
+                time_grain=facts_by_id[fact_id].get("time_grain") or "unknown",
                 score=score_by_id[f"fact:{fact_id}"],
                 rank_debug={
                     "keyword": facts_by_id[fact_id]["keyword_score"],

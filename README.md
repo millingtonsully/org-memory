@@ -152,7 +152,8 @@ model or dimensions re-embeds affected chunks.
 **Bi-temporal facts.** World time (`valid_from` / `valid_to`) and belief time
 (`recorded_at` / `invalidated_at`) are first-class on claims and
 relationships. Superseded facts stay for as-of reads. Document `event_time`
-grounds extracted windows; optional `time_grain` records source precision.
+grounds extracted windows; optional `time_grain` records source precision and
+is returned on `query_facts`, hybrid search facts, and graph cards.
 Registry-exclusive slots close on the write path so “current” answers see one
 winner. `retrieve_context` accepts `as_of` / `believed_as_of` / `as_of_grain`,
 and derives a temporal plan from the query when timestamps are omitted

@@ -72,6 +72,7 @@ def fact_to_kb_hit(fact: FactPassage) -> dict[str, Any]:
         "evidence_quotes": fact.evidence_quotes,
         "score": fact.score,
         "status": fact.status,
+        "time_grain": fact.time_grain,
     }
     if fact.valid_from is not None:
         hit["valid_from"] = fact.valid_from.astimezone(UTC).isoformat().replace("+00:00", "Z")

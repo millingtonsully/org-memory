@@ -89,6 +89,7 @@ class GraphSearchMixin(GraphRepositoryBase):
                         c.status AS status,
                         c.valid_from AS valid_from,
                         c.recorded_at AS recorded_at,
+                        COALESCE(c.time_grain, 'unknown') AS time_grain,
                         evidence.doc_ids AS evidence_doc_ids,
                         c.evidence_quotes AS evidence_quotes,
                         ts_rank(
@@ -132,6 +133,7 @@ class GraphSearchMixin(GraphRepositoryBase):
                         r.status AS status,
                         r.valid_from AS valid_from,
                         r.recorded_at AS recorded_at,
+                        COALESCE(r.time_grain, 'unknown') AS time_grain,
                         evidence.doc_ids AS evidence_doc_ids,
                         r.evidence_quotes AS evidence_quotes,
                         ts_rank(
@@ -209,6 +211,7 @@ class GraphSearchMixin(GraphRepositoryBase):
                     "status": row["status"] or "active",
                     "valid_from": row["valid_from"],
                     "recorded_at": row["recorded_at"],
+                    "time_grain": row["time_grain"] or "unknown",
                     "evidence_doc_ids": list(row["evidence_doc_ids"]),
                     "evidence_quotes": quotes,
                     "keyword_score": float(row["keyword_score"]),

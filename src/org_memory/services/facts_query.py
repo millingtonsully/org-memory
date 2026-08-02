@@ -132,6 +132,7 @@ def _shape_claim(
         "status": claim.status,
         "valid_from": claim.valid_from.isoformat() if claim.valid_from else None,
         "valid_to": claim.valid_to.isoformat() if claim.valid_to else None,
+        "time_grain": claim.time_grain,
         "recorded_at": claim.recorded_at.isoformat() if claim.recorded_at else None,
         "invalidated_at": (
             claim.invalidated_at.isoformat() if claim.invalidated_at else None
