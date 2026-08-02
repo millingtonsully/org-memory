@@ -5,7 +5,7 @@ Split for maintainability; callers still import ``GraphRepository``.
 - ``base``: session/workspace + all-visible evidence ACL
 - ``search``: keyword fact candidates for hybrid retrieval
 - ``claims``: claim lifecycle and viewer-scoped claim reads
-- ``writes``: entity/relationship mutations and subject reads
+- ``writes``: entity/relationship mutations; subject claim/edge viewer reads (SQL ACL + temporal)
 - ``traversal``: bounded multi-hop ``paths_from``
 """
 

@@ -47,7 +47,7 @@ ambiguity when the question does not choose an axis clearly.
 | **L2** | Write grounding | Attach world-time windows to new facts using document `event_time` as reference (`t_ref`) plus any explicit or relative time in the text |
 | **L3** | Supersession | When a new exclusive value wins, close the loser on **both** axes (set `valid_to`, set `invalidated_at`, point `superseded_by_*`) |
 | **L4** | Query intent | Map natural language → `{axis, time_point or range, granularity, confidence}` or return ambiguity |
-| **L5** | Read filters | Apply the plan to `query_facts`, `query_paths`, hybrid `fact_candidates`, and compose (`retrieve_context`), including shared “current” = active ∩ validity-now and `as_of_grain` |
+| **L5** | Read filters | Apply the plan to `query_facts`, `query_paths`, hybrid `fact_candidates`, subject claim/edge viewer reads, and compose (`retrieve_context`), including shared “current” = active ∩ validity-now and `as_of_grain` (ACL + temporal filters in SQL) |
 | **L6** | Evaluation | Gold covers current, world (host+NL), belief (host+NL), grain, joint axes, multi-valued, and snapshot `fact_diffs` |
 
 Each layer owns a distinct failure class:
@@ -333,8 +333,8 @@ planted vectors remain appropriate for retrieval wiring tests elsewhere.
 | Path | Role |
 | ---- | ---- |
 | [`src/org_memory/db/repositories/graph/claims.py`](../src/org_memory/db/repositories/graph/claims.py) | `supersede_claim(..., valid_to=)`; slot locks |
-| [`src/org_memory/db/repositories/graph/writes.py`](../src/org_memory/db/repositories/graph/writes.py) | Relationship supersede; as-of claim/edge reads |
-| [`src/org_memory/db/repositories/graph/search.py`](../src/org_memory/db/repositories/graph/search.py) | Hybrid fact candidates with temporal axes |
+| [`src/org_memory/db/repositories/graph/writes.py`](../src/org_memory/db/repositories/graph/writes.py) | Relationship supersede; subject claim/edge viewer reads (validity + belief + all-visible ACL in SQL) |
+| [`src/org_memory/db/repositories/graph/search.py`](../src/org_memory/db/repositories/graph/search.py) | Hybrid fact candidates with temporal axes + ACL-in-SQL |
 | [`src/org_memory/db/repositories/graph/traversal.py`](../src/org_memory/db/repositories/graph/traversal.py) | Path walks with temporal + ACL-in-SQL |
 
 ### Read / compose
@@ -401,8 +401,8 @@ src/org_memory/services/temporality/
   __init__.py           # light exports (avoid cycles with graph → grain)
   types.py              # TemporalQueryPlan, GroundedInterval, TimeGrain
   grounding.py          # t_ref + extractor fields → GroundedInterval (pure)
-  grain.py              # grain expand + as_of match helpers + SQL fragment
-  merge.py              # reconcile temporal fields on re-evidence
+  grain.py              # grain expand + as_of match + SQL validity/belief fragments + read statuses
+  merge.py              # reconcile temporal fields on re-evidence (fill-only; corrections via supersession)
   intent.py             # query text → TemporalQueryPlan (rules first)
   intent_llm.py         # spend-gated assist; import as leaf module
   eager_close.py        # exclusive slot close after apply

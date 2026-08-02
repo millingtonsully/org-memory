@@ -206,7 +206,9 @@ participates; `author` filters authorship. Those are distinct.
 `believed_as_of`, and `as_of_grain`. Belief-only reads also apply world
 validity at the belief instant (host `as_of` still wins when both are set).
 When those axes are set, the hybrid fact channel inside `retrieve_context`
-uses the same windows (active + superseded). When both timestamps are omitted,
+uses the same windows (active + superseded). Subject claim and edge viewer
+reads apply those filters (and all-visible evidence ACL) in SQL alongside
+hybrid candidates and path walks. When both timestamps are omitted,
 compose derives a temporal plan from the query text; when that plan is
 ambiguous, a spend-gated synthesis assist may resolve it (or leave ambiguity /
 surface vendor errors). Explicit host timestamps always win; host `as_of_grain`
@@ -219,6 +221,9 @@ omits those filters. Omitting both axes on structured reads means currently
 active facts whose validity contains now.
 Schema `0001` indexes subject/endpoint plus temporal ranges. Storage:
 `docs/temporal-model.md`. Pipeline: `docs/temporal-truth.md`.
+
+On re-evidence, temporal merge fills open ends only; corrections use
+supersession or a new object value.
 
 Active facts also rank with exponential freshness
 (`FACT_FRESHNESS_HALF_LIFE_DAYS` / `FACT_FRESHNESS_MIN_DECAY`; per-predicate

@@ -54,8 +54,13 @@ half-open point containment after fact-side expansion.
   sets `as_of_grain`), so the response matches what would have been current and
   believed then. Host `as_of` still wins for the world clock when both are set.
 - Omitting both returns currently active facts whose validity window contains
-  now (grain-expanded; default query grain `day`), matching hybrid
-  `fact_candidates`.
+now (grain-expanded; default query grain `day`), matching hybrid
+`fact_candidates`.
+
+Subject claim and edge viewer reads (`claims_for_viewer`,
+`relationships_for_viewer`) apply the same grain-aware validity, belief, and
+all-visible evidence ACL filters in SQL as hybrid `fact_candidates` and
+`paths_from`, so private evidence never enters the viewer result set.
 
 `POST /tools/diff_facts` compares two snapshots of the same subject on one
 axis: a world pair (`as_of_from` / `as_of_to`) or a belief pair
@@ -103,6 +108,11 @@ async conflict worker remains the safety net for duplicates, races,
 promotions, and registry-unknown exclusivity. That write-path behavior is
 part of the temporal truth pipeline — see
 [`temporal-truth.md`](temporal-truth.md).
+
+On re-evidence into an existing live row, temporal merge is **fill-only**:
+open `valid_from` / `valid_to` may be filled and `time_grain` may upgrade to a
+finer grain; existing closed window ends are preserved. Corrections to a wrong
+window use supersession or a new object value, not silent overwrite on merge.
 
 ## Freshness on the read path
 

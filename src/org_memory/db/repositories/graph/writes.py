@@ -1,6 +1,8 @@
-"""Entity and relationship writes plus viewer-scoped edge/entity reads.
+"""Entity and relationship writes plus SQL viewer-scoped claim/edge reads.
 
-Claim lifecycle lives in `claims.py` (`GraphClaimsMixin`).
+Claim lifecycle mutations live in `claims.py` (`GraphClaimsMixin`). Subject
+claim/edge viewer reads live here and enforce validity, belief, and all-visible
+evidence ACL in SQL (same predicates as hybrid candidates and path walks).
 """
 
 from __future__ import annotations
@@ -16,8 +18,10 @@ from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.fact_lifecycle import FactStatus, transition_fact
 from org_memory.domain.models import Principal
 from org_memory.services.temporality.grain import (
+    belief_as_of_sql,
     fact_matches_as_of,
     resolve_validity_query_point,
+    validity_as_of_sql,
 )
 from org_memory.services.temporality.merge import merge_temporal_fields
 
@@ -46,6 +50,29 @@ _ENTITY_EVIDENCE_LATERAL = """
         SELECT array_agg(v.doc_id) AS doc_ids
         FROM visible_docs v
         WHERE v.doc_id = ANY(e.evidence_doc_ids)
+    ) evidence
+"""
+_CLAIM_VALIDITY_AS_OF = validity_as_of_sql("c")
+_CLAIM_BELIEF_AS_OF = belief_as_of_sql("c")
+_REL_VALIDITY_AS_OF = validity_as_of_sql("r")
+_REL_BELIEF_AS_OF = belief_as_of_sql("r")
+_CLAIM_ALL_VISIBLE_SQL = """
+    cardinality(c.evidence_doc_ids) > 0
+    AND cardinality(evidence.doc_ids) = (
+        SELECT count(DISTINCT x) FROM unnest(c.evidence_doc_ids) AS x
+    )
+"""
+_REL_ALL_VISIBLE_SQL = """
+    cardinality(r.evidence_doc_ids) > 0
+    AND cardinality(evidence.doc_ids) = (
+        SELECT count(DISTINCT x) FROM unnest(r.evidence_doc_ids) AS x
+    )
+"""
+_FACT_EVIDENCE_LATERAL = """
+    CROSS JOIN LATERAL (
+        SELECT array_agg(v.doc_id) AS doc_ids
+        FROM visible_docs v
+        WHERE v.doc_id = ANY({alias}.evidence_doc_ids)
     ) evidence
 """
 
@@ -323,25 +350,67 @@ class GraphWritesMixin(GraphRepositoryBase):
         as_of: datetime | None = None,
         believed_as_of: datetime | None = None,
         as_of_grain: str | None = None,
+        statuses: list[str] | None = None,
     ) -> list[tuple[Relationship, list[str]]]:
         """Return edges whose entire evidence set is visible to this viewer.
+
+        All-visible ACL and grain-aware validity run in SQL so private edges never
+        enter the result set (same predicates as ``paths_from`` / hybrid).
         """
-        visible: list[tuple[Relationship, list[str]]] = []
-        for rel in self.relationships_for(
-            node_type,
-            node_id,
-            status=status,
+        status_list = statuses if statuses is not None else [status]
+        effective_as_of, effective_grain = resolve_validity_query_point(
             as_of=as_of,
             believed_as_of=believed_as_of,
             as_of_grain=as_of_grain,
-        ):
-            evidence = list(rel.evidence_doc_ids or [])
-            if not evidence:
+            now=utcnow(),
+        )
+        evidence_lateral = _FACT_EVIDENCE_LATERAL.format(alias="r")
+        rows = self._session.execute(
+            sql(f"""
+                WITH {_ENTITY_VISIBLE_DOCS_CTE}
+                SELECT r.relationship_id, evidence.doc_ids AS evidence_doc_ids
+                FROM relationships r
+                {evidence_lateral}
+                WHERE r.workspace_id = :workspace_id
+                  AND r.status = ANY(CAST(:statuses AS text[]))
+                  AND (
+                      (r.from_type = :node_type AND r.from_id = :node_id)
+                      OR (r.to_type = :node_type AND r.to_id = :node_id)
+                  )
+                  AND {_REL_VALIDITY_AS_OF}
+                  AND {_REL_BELIEF_AS_OF}
+                  AND {_REL_ALL_VISIBLE_SQL}
+                ORDER BY r.created_at
+            """),
+            {
+                "workspace_id": self._ws,
+                "viewer_principals": principal.all_principals(),
+                "node_type": node_type,
+                "node_id": node_id,
+                "statuses": status_list,
+                "as_of": effective_as_of,
+                "as_of_grain": effective_grain,
+                "believed_as_of": believed_as_of,
+            },
+        ).mappings().all()
+        if not rows:
+            return []
+        by_id = {
+            rel.relationship_id: rel
+            for rel in self._session.query(Relationship)
+            .filter(
+                Relationship.workspace_id == self._ws,
+                Relationship.relationship_id.in_([row["relationship_id"] for row in rows]),
+            )
+            .all()
+        }
+        out: list[tuple[Relationship, list[str]]] = []
+        for row in rows:
+            rel = by_id.get(row["relationship_id"])
+            if rel is None:
                 continue
-            doc_ids = self.visible_evidence_doc_ids(evidence, principal)
-            if len(doc_ids) == len(set(evidence)):
-                visible.append((rel, doc_ids))
-        return visible
+            out.append((rel, list(row["evidence_doc_ids"] or [])))
+        return out
 
     def supersede_relationship(
         self,
@@ -414,22 +483,63 @@ class GraphWritesMixin(GraphRepositoryBase):
         as_of_grain: str | None = None,
     ) -> list[tuple[Claim, list[str]]]:
         """Return claims whose *entire* evidence set is visible to this viewer.
+
+        All-visible ACL and grain-aware validity run in SQL so private claims never
+        enter the result set (same predicates as hybrid ``fact_candidates``).
         """
-        visible: list[tuple[Claim, list[str]]] = []
-        for claim in self.claims_for(
-            subject_type,
-            subject_id,
-            statuses=statuses,
+        effective_as_of, effective_grain = resolve_validity_query_point(
             as_of=as_of,
             believed_as_of=believed_as_of,
             as_of_grain=as_of_grain,
-        ):
-            evidence = list(claim.evidence_doc_ids or [])
-            if not evidence:
+            now=utcnow(),
+        )
+        status_clause = (
+            "AND c.status = ANY(CAST(:statuses AS text[]))" if statuses else ""
+        )
+        evidence_lateral = _FACT_EVIDENCE_LATERAL.format(alias="c")
+        rows = self._session.execute(
+            sql(f"""
+                WITH {_ENTITY_VISIBLE_DOCS_CTE}
+                SELECT c.claim_id, evidence.doc_ids AS evidence_doc_ids
+                FROM claims c
+                {evidence_lateral}
+                WHERE c.workspace_id = :workspace_id
+                  AND c.subject_type = :subject_type
+                  AND c.subject_id = :subject_id
+                  {status_clause}
+                  AND {_CLAIM_VALIDITY_AS_OF}
+                  AND {_CLAIM_BELIEF_AS_OF}
+                  AND {_CLAIM_ALL_VISIBLE_SQL}
+                ORDER BY c.created_at DESC
+            """),
+            {
+                "workspace_id": self._ws,
+                "viewer_principals": principal.all_principals(),
+                "subject_type": subject_type,
+                "subject_id": subject_id,
+                "statuses": statuses or [],
+                "as_of": effective_as_of,
+                "as_of_grain": effective_grain,
+                "believed_as_of": believed_as_of,
+            },
+        ).mappings().all()
+        if not rows:
+            return []
+        by_id = {
+            claim.claim_id: claim
+            for claim in self._session.query(Claim)
+            .filter(
+                Claim.workspace_id == self._ws,
+                Claim.claim_id.in_([row["claim_id"] for row in rows]),
+            )
+            .all()
+        }
+        visible: list[tuple[Claim, list[str]]] = []
+        for row in rows:
+            claim = by_id.get(row["claim_id"])
+            if claim is None:
                 continue
-            doc_ids = self.visible_evidence_doc_ids(evidence, principal)
-            if len(doc_ids) == len(set(evidence)):
-                visible.append((claim, doc_ids))
+            visible.append((claim, list(row["evidence_doc_ids"] or [])))
         return visible
 
     def remove_extraction_evidence(self, doc_id: str) -> None:

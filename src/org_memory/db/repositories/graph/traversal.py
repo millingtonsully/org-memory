@@ -10,11 +10,14 @@ from org_memory.db.orm import Relationship, utcnow
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
 from org_memory.services.temporality.grain import (
+    belief_as_of_sql,
     resolve_validity_query_point,
+    temporal_read_statuses,
     validity_as_of_sql,
 )
 
 _REL_VALIDITY_AS_OF = validity_as_of_sql("r")
+_REL_BELIEF_AS_OF = belief_as_of_sql("r")
 
 # All-visible evidence: every evidence doc must be in visible_docs.
 _EDGE_ACL_SQL = """
@@ -66,11 +69,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
             effective_depth != requested_max_depth or effective_limit != requested_limit
         )
         rel_types = [r.strip().lower() for r in (relationship_types or []) if r.strip()]
-        statuses = (
-            ["active", "superseded"]
-            if as_of is not None or believed_as_of is not None
-            else ["active"]
-        )
+        statuses = temporal_read_statuses(as_of, believed_as_of)
         # Current / belief-only: resolve_validity_query_point binds the world
         # clock (now, or believed_as_of when as_of is omitted) with day grain.
         effective_as_of, effective_grain = resolve_validity_query_point(
@@ -120,10 +119,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                               OR r.relationship_type = ANY(CAST(:rel_types AS text[]))
                           )
                           AND {_REL_VALIDITY_AS_OF}
-                          AND (CAST(:believed_as_of AS timestamptz) IS NULL
-                               OR (r.recorded_at <= :believed_as_of
-                                   AND (r.invalidated_at IS NULL
-                                        OR r.invalidated_at > :believed_as_of)))
+                          AND {_REL_BELIEF_AS_OF}
                           AND {_EDGE_ACL_SQL}
                         UNION ALL
                         SELECT
@@ -148,10 +144,7 @@ class GraphTraversalMixin(GraphRepositoryBase):
                               OR r.relationship_type = ANY(CAST(:rel_types AS text[]))
                          )
                          AND {_REL_VALIDITY_AS_OF}
-                         AND (CAST(:believed_as_of AS timestamptz) IS NULL
-                              OR (r.recorded_at <= :believed_as_of
-                                  AND (r.invalidated_at IS NULL
-                                       OR r.invalidated_at > :believed_as_of)))
+                         AND {_REL_BELIEF_AS_OF}
                          AND NOT (r.to_type || ':' || r.to_id = ANY(w.node_path))
                          AND {_EDGE_ACL_SQL}
                         WHERE w.depth < :max_depth

@@ -11,25 +11,17 @@ from org_memory.db.repositories._common import _document_visibility_filters_sql
 from org_memory.db.repositories.graph.base import GraphRepositoryBase
 from org_memory.domain.models import Principal
 from org_memory.services.temporality.grain import (
+    belief_as_of_sql,
     resolve_validity_query_point,
+    temporal_read_statuses,
     validity_as_of_sql,
 )
 
 # Shared temporal predicates for claim and relationship legs.
 _VALIDITY_AS_OF = validity_as_of_sql("c")
-_BELIEF_AS_OF = """
-    (CAST(:believed_as_of AS timestamptz) IS NULL
-     OR (c.recorded_at <= :believed_as_of
-         AND (c.invalidated_at IS NULL
-              OR c.invalidated_at > :believed_as_of)))
-"""
+_BELIEF_AS_OF = belief_as_of_sql("c")
 _REL_VALIDITY_AS_OF = validity_as_of_sql("r")
-_REL_BELIEF_AS_OF = """
-    (CAST(:believed_as_of AS timestamptz) IS NULL
-     OR (r.recorded_at <= :believed_as_of
-         AND (r.invalidated_at IS NULL
-              OR r.invalidated_at > :believed_as_of)))
-"""
+_REL_BELIEF_AS_OF = belief_as_of_sql("r")
 
 
 class GraphSearchMixin(GraphRepositoryBase):
@@ -67,8 +59,7 @@ class GraphSearchMixin(GraphRepositoryBase):
         the point are eligible. ``as_of_grain`` selects month/quarter/year bucket
         overlap when the query is coarse.
         """
-        temporal = as_of is not None or believed_as_of is not None
-        statuses = ["active", "superseded"] if temporal else ["active"]
+        statuses = temporal_read_statuses(as_of, believed_as_of)
         claim_temporal = f"{_VALIDITY_AS_OF} AND {_BELIEF_AS_OF}"
         rel_temporal = f"{_REL_VALIDITY_AS_OF} AND {_REL_BELIEF_AS_OF}"
         effective_as_of, effective_grain = resolve_validity_query_point(

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from org_memory.services.temporality.diff import diff_fact_snapshots
 from org_memory.services.temporality.grain import (
+    belief_as_of_sql,
     fact_matches_as_of,
     normalize_grain,
     parse_host_as_of_grain,
+    temporal_read_statuses,
     validity_as_of_sql,
 )
 from org_memory.services.temporality.grounding import ground_fact_times
@@ -27,11 +29,13 @@ __all__ = [
     "TemporalAxis",
     "TemporalQueryPlan",
     "TimeGrain",
+    "belief_as_of_sql",
     "diff_fact_snapshots",
     "fact_matches_as_of",
     "ground_fact_times",
     "normalize_grain",
     "parse_host_as_of_grain",
     "plan_temporal_query",
+    "temporal_read_statuses",
     "validity_as_of_sql",
 ]

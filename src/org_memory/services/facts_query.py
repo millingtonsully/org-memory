@@ -13,6 +13,7 @@ from org_memory.db.orm import Claim
 from org_memory.db.repositories import GraphRepository
 from org_memory.domain.models import Principal
 from org_memory.services.ranking import fact_freshness_score
+from org_memory.services.temporality.grain import temporal_read_statuses
 from org_memory.taxonomy_registry import get_taxonomy_registry
 
 
@@ -55,11 +56,7 @@ def query_subject_facts(
                 f"Unknown predicate {predicate!r}; not in taxonomy_registry."
             )
 
-    statuses = (
-        ["active", "superseded"]
-        if as_of is not None or believed_as_of is not None
-        else ["active"]
-    )
+    statuses = temporal_read_statuses(as_of, believed_as_of)
     rows = graph.claims_for_viewer(
         subject_type,
         subject_id,

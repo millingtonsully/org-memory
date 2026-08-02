@@ -92,6 +92,20 @@ def test_resolve_current_defaults_to_now_day() -> None:
     assert grain == "day"
 
 
+def test_temporal_read_statuses_point_includes_superseded() -> None:
+    from org_memory.services.temporality.grain import temporal_read_statuses
+
+    assert temporal_read_statuses(None, None) == ["active"]
+    assert temporal_read_statuses(datetime(2026, 3, 1, tzinfo=UTC), None) == [
+        "active",
+        "superseded",
+    ]
+    assert temporal_read_statuses(None, datetime(2026, 3, 1, tzinfo=UTC)) == [
+        "active",
+        "superseded",
+    ]
+
+
 def test_parse_host_as_of_grain_accepts_known_values() -> None:
     assert parse_host_as_of_grain(None) is None
     assert parse_host_as_of_grain("") is None

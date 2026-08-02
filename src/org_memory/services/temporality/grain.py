@@ -138,6 +138,30 @@ def resolve_validity_query_point(
     return clock, grain
 
 
+def temporal_read_statuses(
+    as_of: datetime | None,
+    believed_as_of: datetime | None,
+) -> list[str]:
+    """Statuses eligible for a temporal point read vs a current read.
+
+    Point reads (world or belief) include superseded rows whose windows still
+    contain the point. Current reads return active rows only.
+    """
+    if as_of is not None or believed_as_of is not None:
+        return ["active", "superseded"]
+    return ["active"]
+
+
+def belief_as_of_sql(alias: str) -> str:
+    """SQL belief-axis predicate using bind ``:believed_as_of`` (NULL = open)."""
+    return f"""
+    (CAST(:believed_as_of AS timestamptz) IS NULL
+     OR ({alias}.recorded_at <= :believed_as_of
+         AND ({alias}.invalidated_at IS NULL
+              OR {alias}.invalidated_at > :believed_as_of)))
+    """
+
+
 def validity_as_of_sql(alias: str) -> str:
     """SQL predicate using binds ``:as_of`` and ``:as_of_grain``.
 
